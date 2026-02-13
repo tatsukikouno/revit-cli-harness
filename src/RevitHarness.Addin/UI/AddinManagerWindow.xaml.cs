@@ -12,15 +12,16 @@ namespace RevitHarness.Addin.UI
 {
     public partial class AddinManagerWindow : Window
     {
-        private readonly UIApplication _uiapp;
+        private readonly ExternalEvent _externalEvent;
+        private readonly AddinManagerEventHandler _eventHandler;
         private readonly AssemblyScanner _scanner;
-        private readonly CommandExecutor _executor;
         private readonly List<string> _logLines = new List<string>();
 
-        public AddinManagerWindow(UIApplication uiapp)
+        public AddinManagerWindow(ExternalEvent externalEvent, AddinManagerEventHandler eventHandler)
         {
             InitializeComponent();
-            _uiapp = uiapp;
+            _externalEvent = externalEvent;
+            _eventHandler = eventHandler;
 
             Action<string> log = msg =>
             {
@@ -29,7 +30,6 @@ namespace RevitHarness.Addin.UI
 
             var shadowCopier = new ShadowCopier(log);
             _scanner = new AssemblyScanner(shadowCopier, log);
-            _executor = new CommandExecutor(new ShadowCopier(log), log);
         }
 
         private void BrowseButton_Click(object sender, RoutedEventArgs e)
@@ -88,27 +88,29 @@ namespace RevitHarness.Addin.UI
                 return;
             }
 
-            try
+            _logLines.Clear();
+            AppendResult($"Executing: {selected.FullName} ...");
+
+            _eventHandler.Enqueue(new AddinManagerRequest
             {
-                _logLines.Clear();
-                AppendResult($"Executing: {selected.FullName} ...");
+                AssemblyPath = path,
+                CommandType = selected.FullName,
+                Callback = result => Dispatcher.Invoke(() => ShowResult(result))
+            });
+            _externalEvent.Raise();
+        }
 
-                var result = _executor.ExecuteCommand(_uiapp, path, selected.FullName);
-
-                if (result.Success)
-                {
-                    AppendResult($"[OK] {result.ResultText}");
-                }
-                else
-                {
-                    AppendResult($"[FAILED] {result.ErrorMessage}");
-                    if (result.StackTrace != null)
-                        AppendResult(result.StackTrace);
-                }
+        private void ShowResult(CommandExecutionResult result)
+        {
+            if (result.Success)
+            {
+                AppendResult($"[OK] {result.ResultText}");
             }
-            catch (Exception ex)
+            else
             {
-                AppendResult($"Execution error: {ex.Message}");
+                AppendResult($"[FAILED] {result.ErrorMessage}");
+                if (result.StackTrace != null)
+                    AppendResult(result.StackTrace);
             }
         }
 

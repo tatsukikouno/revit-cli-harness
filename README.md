@@ -1,138 +1,259 @@
 # RevitHarness
 
-Revit 2024用のハーネスアドインで、実行中のRevitインスタンス内でCLI/エージェントからテストや任意のコードを実行できます。DLLホットスワップをサポートし、Revit実行中でもコードの更新が可能です。
+A harness add-in for Revit 2024 that enables CLI and agent-driven test execution, command execution, and element inspection against a running Revit instance. Supports DLL hot-swapping without restarting Revit.
 
-## 特徴
+[日本語版 README](README.ja.md)
 
-- **Named Pipe IPC**: CLI ⇄ Revit間の高速通信
-- **Shadow Copy**: DLLをシャドウコピーしてファイルロックを回避
-- **ホットスワップ**: Revit再起動なしでDLLを更新可能
+## Features
 
-## インストール
+- **Named Pipe IPC** — Fast JSON-based communication between CLI and Revit
+- **Shadow Copy + Byte Load** — DLLs are shadow-copied and loaded from byte arrays, bypassing file locks and the .NET assembly cache for seamless iterative development
+- **Element Lookup** — RevitLookup-style element inspection from the CLI
+- **Addin Manager UI** — A Revit ribbon button that opens a GUI to browse DLLs, scan for commands, and execute them
+- **HarnessCommandBase** — Write a single class that works both from the CLI (`IHarnessCommand`) and as a Revit ribbon button (`IExternalCommand`)
 
-### CLIツールのインストール
+## Installation
+
+### CLI Tool
 
 ```bash
 dotnet tool install -g RevitHarness.Cli
 ```
 
-### Revitへのアドイン展開
+### Deploying the Add-in
 
 ```bash
-# Revit 2024にアドインをインストール
+# Install
 revit-harness install --revit-version 2024
 
-# インストール状態を確認
+# Reinstall (overwrite with --force)
+revit-harness install --revit-version 2024 --force
+
+# Check status
 revit-harness status
 
-# アンインストール
+# Uninstall
 revit-harness uninstall --revit-version 2024
 ```
 
-## CLI使用方法
+> Close Revit before installing or uninstalling. Restart Revit after installation to load the add-in.
+
+### Installation Path
+
+```
+%APPDATA%\Autodesk\Revit\Addins\2024\
+├── RevitHarness.addin              # Manifest
+└── RevitHarness\
+    ├── RevitHarness.Addin.dll
+    ├── RevitHarness.Contracts.dll
+    ├── RevitHarness.Lookup.dll
+    ├── LookupEngine.dll
+    ├── Newtonsoft.Json.dll
+    └── ...
+```
+
+## CLI Commands
+
+### ping — Health Check
 
 ```bash
-# Revitとの接続確認
 revit-harness ping
+```
 
-# テスト実行
-revit-harness run-tests --dll "path/to/tests.dll" --type "Company.Tests.EntryPoint"
+Returns Revit version, process ID, and active document name.
 
-# コマンド実行
-revit-harness run-command --dll "path/to/command.dll" --type "Company.MyCommand"
+### run-tests — Execute Tests
 
-# 登録済みRevitコマンドの実行
+```bash
+revit-harness run-tests --dll "path/to/tests.dll" --type "Company.Tests.EntryPoint" [--filter "Smoke"] [--timeout 300000]
+```
+
+Executes an `ITestEntryPoint` implementation from the specified DLL. The exit code is determined by the `passed` field in the result JSON.
+
+### run-command — Execute a Command
+
+```bash
+revit-harness run-command --dll "path/to/command.dll" --type "Company.MyCommand" [--args '{"key":"value"}'] [--timeout 300000]
+```
+
+Executes a type implementing `IHarnessCommand` or `IExternalCommand`.
+
+### post-command — Post a Registered Revit Command
+
+```bash
 revit-harness post-command --id "CustomCtrl_%CustomCtrl_%Add-Ins%Addin%Command"
+```
 
-# IPCサーバー停止（Revitは継続）
+Triggers a registered Revit ribbon command by its command ID.
+
+### lookup — Element Inspection
+
+```bash
+revit-harness lookup --id 12345 [--depth 1] [--max-members 200] [--include-fields] [--include-private] [--include-static] [--filter "Name"]
+```
+
+RevitLookup-style element inspection from the CLI. Outputs property and method return values as JSON.
+
+### shutdown — Stop the IPC Server
+
+```bash
 revit-harness shutdown
 ```
 
-## テスト/コマンドの実装
+Stops the IPC server. Revit continues running.
 
-### Contractsパッケージのインストール
+### Other
+
+```bash
+revit-harness version   # Show version
+revit-harness help      # Show help
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Failure (`ok=false` or `passed=false`) |
+| 2 | Connection / infrastructure error |
+
+## Addin Manager UI
+
+After launching Revit, access it from the **RevitHarness** ribbon tab → **Addin Manager** button.
+
+1. **Browse** to select a DLL
+2. **Scan** to list types implementing `IHarnessCommand` / `IExternalCommand`
+3. Select a type and click **Execute**
+4. Results are displayed in the text area at the bottom
+
+## Implementing Tests and Commands
+
+### Contracts Package
 
 ```bash
 dotnet add package RevitHarness.Contracts
 ```
 
-### ITestEntryPointの実装
+### ITestEntryPoint — For Tests
 
 ```csharp
 using RevitHarness.Contracts;
-using Autodesk.Revit.UI;
-using Newtonsoft.Json;
 
 public class MyTestEntryPoint : ITestEntryPoint
 {
     public string Run(UIApplication uiapp, IDictionary<string, object> args)
     {
-        // テストロジック
         var doc = uiapp.ActiveUIDocument.Document;
-
-        return JsonConvert.SerializeObject(new {
-            passed = true,
-            summary = "All tests passed"
-        });
+        // Test logic
+        return JsonConvert.SerializeObject(new { passed = true, summary = "All tests passed" });
     }
 }
 ```
 
-### IHarnessCommandの実装
+### IHarnessCommand — For Commands (CLI Only)
 
 ```csharp
 using RevitHarness.Contracts;
-using Autodesk.Revit.UI;
-using Newtonsoft.Json;
 
 public class MyCommand : IHarnessCommand
 {
-    public string Execute(UIApplication uiapp)
+    public string Execute(UIApplication uiapp, IDictionary<string, object> args)
     {
-        // コマンドロジック
-        return JsonConvert.SerializeObject(new {
-            result = "Command completed"
-        });
+        // Command logic
+        return JsonConvert.SerializeObject(new { result = "done" });
     }
 }
 ```
 
-## 終了コード
+### HarnessCommandBase — CLI + Ribbon Dual Use
 
-| コード | 意味 |
-|--------|------|
-| 0 | 成功 |
-| 1 | 失敗（ok=false または passed=false） |
-| 2 | 接続/インフラエラー |
+Use this when you want a single class that can be executed both from the CLI (`revit-harness run-command`) and as a Revit ribbon button (`IExternalCommand`).
 
-## 開発者向け
+```csharp
+using RevitHarness.Contracts;
 
-### ビルド
-
-```bash
-# ソリューション全体をビルド
-dotnet build -c Release
-
-# NuGetパッケージ生成
-dotnet pack -c Release
+[Transaction(TransactionMode.Manual)]
+public class MyDualCommand : HarnessCommandBase
+{
+    public override string Execute(UIApplication uiapp, IDictionary<string, object> args)
+    {
+        var doc = uiapp.ActiveUIDocument.Document;
+        // Works from both CLI and ribbon
+        return JsonConvert.SerializeObject(new { result = "done" });
+    }
+}
 ```
 
-### プロジェクト構成
+## IPC Protocol
+
+JSON messages over Named Pipe `\\.\pipe\RevitHarness2024` with length-prefix framing (int32 LE).
+
+| Operation | Description |
+|-----------|-------------|
+| `ping` | Health check |
+| `runTests` | Execute `ITestEntryPoint` |
+| `runCommand` | Execute `IHarnessCommand` / `IExternalCommand` |
+| `postCommand` | Post a registered Revit command |
+| `lookupElement` | Element inspection |
+| `shutdown` | Stop the IPC server |
+
+## Development
+
+### Build
+
+```bash
+# Entire solution
+dotnet build revit-cli-harness.sln -c Debug
+
+# Generate NuGet packages
+dotnet pack src/RevitHarness.Contracts -c Release
+dotnet pack src/RevitHarness.Cli -c Release
+```
+
+### Project Structure
 
 ```
 revit-cli-harness/
 ├── src/
-│   ├── RevitHarness.Contracts/   # 共有インターフェース (NuGet: RevitHarness.Contracts)
-│   ├── RevitHarness.Addin/       # Revitアドイン
-│   └── RevitHarness.Cli/         # CLIツール (NuGet: RevitHarness.Cli)
-├── Directory.Build.props         # 共通ビルド設定
-└── Directory.Packages.props      # パッケージバージョン管理
+│   ├── RevitHarness.Contracts/     # Shared interfaces (NuGet: RevitHarness.Contracts)
+│   │   ├── ITestEntryPoint.cs
+│   │   ├── IHarnessCommand.cs
+│   │   └── HarnessCommandBase.cs
+│   ├── RevitHarness.Addin/         # Revit add-in
+│   │   ├── App.cs                  # IExternalApplication + ribbon setup
+│   │   ├── Commands/
+│   │   │   ├── CommandExecutor.cs          # Shadow copy + reflection execution engine
+│   │   │   ├── AssemblyScanner.cs          # Discovers command types in a DLL
+│   │   │   └── OpenAddinManagerCommand.cs  # IExternalCommand for the ribbon button
+│   │   ├── Ipc/
+│   │   │   ├── IpcMessages.cs
+│   │   │   ├── IpcServer.cs
+│   │   │   ├── HarnessEventHandler.cs
+│   │   │   └── ShadowCopier.cs
+│   │   └── UI/
+│   │       ├── AddinManagerWindow.xaml
+│   │       └── AddinManagerWindow.xaml.cs
+│   ├── RevitHarness.Lookup/        # Element inspection
+│   └── RevitHarness.Cli/           # CLI tool (NuGet: RevitHarness.Cli)
+├── lib/LookupEngine/               # LookupEngine library
+├── Directory.Build.props            # Common build settings & version
+└── Directory.Packages.props         # Centralized package versions
 ```
 
-### ログ
+### Logs
 
-ログは以下に出力されます: `%LOCALAPPDATA%\RevitHarness\logs\harness_{date}.log`
+```
+%LOCALAPPDATA%\RevitHarness\logs\harness_{date}.log
+```
 
-## ライセンス
+### Shadow Copy Directory
+
+```
+%LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\
+```
+
+Old directories are automatically cleaned up (max 10 generations, deleted after 1 day).
+
+## License
 
 MIT

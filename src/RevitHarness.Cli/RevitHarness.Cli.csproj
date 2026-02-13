@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>RevitHarness.Cli</RootNamespace>
+    <AssemblyName>revit-harness</AssemblyName>
+
+    <!-- dotnet tool settings -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>revit-harness</ToolCommandName>
+    <PackageId>RevitHarness.Cli</PackageId>
+    <Description>CLI tool for RevitHarness - installs and manages the RevitHarness add-in for Revit</Description>
+    <PackageTags>revit;testing;harness;cli</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- .NET 8 settings -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <!-- Embed addin files as resources -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\RevitHarness.Addin.dll" Link="Resources\RevitHarness.Addin.dll" LogicalName="RevitHarness.Addin.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\RevitHarness.Addin.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\RevitHarness.Contracts.dll" Link="Resources\RevitHarness.Contracts.dll" LogicalName="RevitHarness.Contracts.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\RevitHarness.Contracts.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\Newtonsoft.Json.dll" Link="Resources\Newtonsoft.Json.dll" LogicalName="Newtonsoft.Json.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\Newtonsoft.Json.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\RevitHarness.Lookup.dll" Link="Resources\RevitHarness.Lookup.dll" LogicalName="RevitHarness.Lookup.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\RevitHarness.Lookup.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\LookupEngine.dll" Link="Resources\LookupEngine.dll" LogicalName="LookupEngine.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\LookupEngine.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\LookupEngine.Abstractions.dll" Link="Resources\LookupEngine.Abstractions.dll" LogicalName="LookupEngine.Abstractions.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\LookupEngine.Abstractions.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Text.Json.dll" Link="Resources\System.Text.Json.dll" LogicalName="System.Text.Json.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Text.Json.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Text.Encodings.Web.dll" Link="Resources\System.Text.Encodings.Web.dll" LogicalName="System.Text.Encodings.Web.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Text.Encodings.Web.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Memory.dll" Link="Resources\System.Memory.dll" LogicalName="System.Memory.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Memory.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Buffers.dll" Link="Resources\System.Buffers.dll" LogicalName="System.Buffers.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Buffers.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Runtime.CompilerServices.Unsafe.dll" Link="Resources\System.Runtime.CompilerServices.Unsafe.dll" LogicalName="System.Runtime.CompilerServices.Unsafe.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Runtime.CompilerServices.Unsafe.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\Microsoft.Bcl.AsyncInterfaces.dll" Link="Resources\Microsoft.Bcl.AsyncInterfaces.dll" LogicalName="Microsoft.Bcl.AsyncInterfaces.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\Microsoft.Bcl.AsyncInterfaces.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Threading.Tasks.Extensions.dll" Link="Resources\System.Threading.Tasks.Extensions.dll" LogicalName="System.Threading.Tasks.Extensions.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Threading.Tasks.Extensions.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Numerics.Vectors.dll" Link="Resources\System.Numerics.Vectors.dll" LogicalName="System.Numerics.Vectors.dll" Condition="Exists('..\RevitHarness.Addin\bin\$(Platform)\$(Configuration)\System.Numerics.Vectors.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\RevitHarness.addin" Link="Resources\RevitHarness.addin" LogicalName="RevitHarness.addin" />
+  </ItemGroup>
+
+  <!-- Ensure Addin project is built first -->
+  <ItemGroup>
+    <ProjectReference Include="..\RevitHarness.Addin\RevitHarness.Addin.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+	<AddIn Type="Application">
+		<Name>RevitHarness</Name>
+		<Assembly>RevitHarness/RevitHarness.Addin.dll</Assembly>
+		<FullClassName>RevitHarness.Addin.App</FullClassName>
+		<ClientId>4738EE1F-5DFA-4682-AB21-CDFC58CE299E</ClientId>
+		<VendorId>tatsukikouno</VendorId>
+		<VendorDescription>tatsukikouno</VendorDescription>
+	</AddIn>
+</RevitAddIns>

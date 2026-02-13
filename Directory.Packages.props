@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <PackageVersion>
+      <PrivateAssets>none</PrivateAssets>
+    </PackageVersion>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <!-- JSON serialization -->
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+</Project>

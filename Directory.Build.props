@@ -1,0 +1,22 @@
+<Project>
+  <PropertyGroup>
+    <!-- Common build settings -->
+    <LangVersion>9.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64</Platforms>
+
+    <!-- Version info -->
+    <Version>1.0.2</Version>
+    <Authors>tatsukikouno</Authors>
+    <Company>tatsukikouno</Company>
+    <Product>RevitHarness</Product>
+    <Copyright>Copyright (c) 2024</Copyright>
+
+    <!-- Package settings -->
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/tatsukikouno/revit-cli-harness</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+</Project>

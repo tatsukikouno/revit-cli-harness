@@ -1,9 +1,11 @@
 #nullable enable
 
 using Autodesk.Revit.UI;
+using RevitHarness.Addin.Commands;
 using RevitHarness.Addin.Ipc;
 using System;
 using System.IO;
+using System.Reflection;
 using System.Threading;
 using TaskDialog = Autodesk.Revit.UI.TaskDialog;
 
@@ -46,6 +48,16 @@ namespace RevitHarness.Addin
                     null,
                     TimeSpan.FromMilliseconds(100),
                     TimeSpan.FromMilliseconds(100));
+
+                // Create ribbon UI (non-fatal if it fails)
+                try
+                {
+                    CreateRibbon(application);
+                }
+                catch (Exception ribbonEx)
+                {
+                    Log($"Ribbon creation failed (non-fatal): {ribbonEx.Message}");
+                }
 
                 Log("RevitHarness add-in started successfully");
                 return Result.Succeeded;
@@ -90,6 +102,22 @@ namespace RevitHarness.Addin
                 Log($"Error during shutdown: {ex}");
                 return Result.Failed;
             }
+        }
+
+        private void CreateRibbon(UIControlledApplication application)
+        {
+            application.CreateRibbonTab("RevitHarness");
+            var panel = application.CreateRibbonPanel("RevitHarness", "Tools");
+
+            var assemblyPath = Assembly.GetExecutingAssembly().Location;
+            var buttonData = new PushButtonData(
+                "OpenAddinManager",
+                "Addin\nManager",
+                assemblyPath,
+                typeof(OpenAddinManagerCommand).FullName);
+
+            panel.AddItem(buttonData);
+            Log("Ribbon created: RevitHarness > Tools > Addin Manager");
         }
 
         private void ProcessPendingRequests(object? state)

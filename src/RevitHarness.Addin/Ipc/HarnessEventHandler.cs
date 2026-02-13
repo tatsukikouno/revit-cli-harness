@@ -3,6 +3,7 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Newtonsoft.Json;
+using RevitHarness.Addin.Commands;
 using RevitHarness.Contracts;
 using RevitHarness.Lookup;
 using System;
@@ -20,6 +21,7 @@ namespace RevitHarness.Addin.Ipc
     {
         private readonly IpcServer _server;
         private readonly ShadowCopier _shadowCopier;
+        private readonly CommandExecutor _commandExecutor;
         private readonly List<string> _logs;
         private readonly Action<string> _log;
         private UIApplication? _uiapp;
@@ -28,6 +30,7 @@ namespace RevitHarness.Addin.Ipc
         {
             _server = server;
             _shadowCopier = new ShadowCopier(log);
+            _commandExecutor = new CommandExecutor(_shadowCopier, log);
             _logs = new List<string>();
             _log = log;
         }
@@ -263,99 +266,25 @@ namespace RevitHarness.Addin.Ipc
                     sw.ElapsedMilliseconds);
             }
 
-            ResolveEventHandler? resolver = null;
-            try
+            var result = _commandExecutor.ExecuteCommand(_uiapp!, assemblyPath!, commandType!, args);
+
+            if (result.Success)
             {
-                // Shadow copy the assembly
-                Log($"Shadow copying: {assemblyPath}");
-                var shadowPath = _shadowCopier.CopyToShadow(assemblyPath!);
-
-                // Load the assembly from bytes to bypass .NET assembly cache
-                Log($"Loading assembly from bytes (cache bypass)");
-                var (assembly, assemblyResolver) = _shadowCopier.LoadAssemblyFromBytes(shadowPath);
-                resolver = assemblyResolver;
-                AppDomain.CurrentDomain.AssemblyResolve += resolver;
-
-                // Find the command type
-                var type = assembly.GetType(commandType);
-                if (type == null)
+                var response = new RunCommandResult
                 {
-                    return IpcResponse.Failure(
-                        request.Id,
-                        ErrorCodes.TypeNotFound,
-                        $"Type not found: {commandType}",
-                        sw.ElapsedMilliseconds);
-                }
-
-                // Check if type implements IHarnessCommand (our simplified interface)
-                if (typeof(IHarnessCommand).IsAssignableFrom(type))
-                {
-                    Log("Creating harness command instance");
-                    var command = (IHarnessCommand)Activator.CreateInstance(type)!;
-
-                    Log("Executing harness command");
-                    var resultJson = command.Execute(_uiapp!, args);
-                    Log("Command completed");
-
-                    var response = new RunCommandResult
-                    {
-                        Result = "Succeeded",
-                        Message = resultJson
-                    };
-
-                    _shadowCopier.Cleanup();
-                    return IpcResponse.Success(request.Id, response, sw.ElapsedMilliseconds);
-                }
-
-                // Fallback: Check if type implements IExternalCommand
-                if (typeof(IExternalCommand).IsAssignableFrom(type))
-                {
-                    Log("Creating IExternalCommand instance");
-                    var command = (IExternalCommand)Activator.CreateInstance(type)!;
-
-                    Log("Executing command (note: ExternalCommandData will be null)");
-                    var message = string.Empty;
-                    var elements = new ElementSet();
-
-                    // Note: We pass null for commandData since we can't create it externally
-                    // Commands that depend on commandData will fail
-                    var result = command.Execute(null!, ref message, elements);
-
-                    Log($"Command completed with result: {result}");
-
-                    var response = new RunCommandResult
-                    {
-                        Result = result.ToString(),
-                        Message = string.IsNullOrEmpty(message) ? null : message
-                    };
-
-                    _shadowCopier.Cleanup();
-                    return IpcResponse.Success(request.Id, response, sw.ElapsedMilliseconds);
-                }
-
-                return IpcResponse.Failure(
-                    request.Id,
-                    ErrorCodes.TypeNotFound,
-                    $"Type {commandType} does not implement IHarnessCommand or IExternalCommand",
-                    sw.ElapsedMilliseconds);
+                    Result = "Succeeded",
+                    Message = result.ResultText
+                };
+                return IpcResponse.Success(request.Id, response, sw.ElapsedMilliseconds);
             }
-            catch (Exception ex)
+            else
             {
-                Log($"Command execution failed: {ex}");
                 return IpcResponse.Failure(
                     request.Id,
                     ErrorCodes.RevitApiError,
-                    ex.Message,
+                    result.ErrorMessage ?? "Unknown error",
                     sw.ElapsedMilliseconds,
-                    new { stackTrace = ex.ToString() });
-            }
-            finally
-            {
-                // Remove the assembly resolver to avoid memory leaks
-                if (resolver != null)
-                {
-                    AppDomain.CurrentDomain.AssemblyResolve -= resolver;
-                }
+                    result.StackTrace != null ? new { stackTrace = result.StackTrace } : null);
             }
         }
 

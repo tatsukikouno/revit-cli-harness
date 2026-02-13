@@ -28,6 +28,7 @@ namespace RevitHarness.Cli.Installation
             "Microsoft.Bcl.AsyncInterfaces.dll",
             "System.Threading.Tasks.Extensions.dll",
             "System.Numerics.Vectors.dll",
+            "System.IO.Pipelines.dll",
             "Newtonsoft.Json.dll",
             "RevitHarness.addin"
         };

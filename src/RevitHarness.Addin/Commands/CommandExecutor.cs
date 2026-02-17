@@ -7,6 +7,7 @@ using RevitHarness.Contracts;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 
 namespace RevitHarness.Addin.Commands
@@ -27,6 +28,8 @@ namespace RevitHarness.Addin.Commands
 
     public class CommandExecutor
     {
+        private const string HarnessCommandInterfaceName = "RevitHarness.Contracts.IHarnessCommand";
+
         private readonly ShadowCopier _shadowCopier;
         private readonly Action<string> _log;
 
@@ -68,21 +71,54 @@ namespace RevitHarness.Addin.Commands
                     };
                 }
 
-                // Check if type implements IHarnessCommand
-                if (typeof(IHarnessCommand).IsAssignableFrom(type))
+                // Check if type implements IHarnessCommand.
+                // Use name-based check first because Assembly.Load(byte[]) can cause type identity
+                // mismatches when RevitHarness.Contracts is loaded in multiple assembly contexts
+                // (e.g., both the harness addin and another addin load their own copy).
+                if (ImplementsInterfaceByName(type, HarnessCommandInterfaceName))
                 {
-                    _log("Creating harness command instance");
-                    var command = (IHarnessCommand)Activator.CreateInstance(type)!;
+                    _log("Creating harness command instance (IHarnessCommand)");
+                    var instance = Activator.CreateInstance(type)!;
 
-                    _log("Executing harness command");
-                    var resultJson = command.Execute(uiapp, args);
-                    _log("Command completed");
+                    // Try direct cast first (works when assembly identity matches)
+                    if (instance is IHarnessCommand command)
+                    {
+                        _log("Executing harness command (direct)");
+                        var resultJson = command.Execute(uiapp, args);
+                        _log("Command completed");
 
-                    _shadowCopier.Cleanup();
+                        _shadowCopier.Cleanup();
+                        return new CommandExecutionResult
+                        {
+                            Success = true,
+                            ResultText = resultJson
+                        };
+                    }
+
+                    // Fallback: invoke via reflection to handle cross-context type identity mismatch
+                    _log("Direct cast failed (assembly context mismatch), using reflection");
+                    var executeMethod = type.GetMethod(
+                        "Execute",
+                        new[] { typeof(UIApplication), typeof(IDictionary<string, object>) });
+
+                    if (executeMethod != null)
+                    {
+                        _log("Executing harness command (reflection)");
+                        var resultJson = (string?)executeMethod.Invoke(instance, new object[] { uiapp, args });
+                        _log("Command completed");
+
+                        _shadowCopier.Cleanup();
+                        return new CommandExecutionResult
+                        {
+                            Success = true,
+                            ResultText = resultJson
+                        };
+                    }
+
                     return new CommandExecutionResult
                     {
-                        Success = true,
-                        ResultText = resultJson
+                        Success = false,
+                        ErrorMessage = $"Type {commandType} declares IHarnessCommand but Execute method not found"
                     };
                 }
 
@@ -132,6 +168,16 @@ namespace RevitHarness.Addin.Commands
                     AppDomain.CurrentDomain.AssemblyResolve -= resolver;
                 }
             }
+        }
+
+        /// <summary>
+        /// Checks if a type implements an interface by comparing full names.
+        /// This avoids false negatives from .NET type identity mismatches that occur when
+        /// the same assembly (e.g., RevitHarness.Contracts) is loaded in multiple contexts.
+        /// </summary>
+        private static bool ImplementsInterfaceByName(Type type, string interfaceFullName)
+        {
+            return type.GetInterfaces().Any(i => i.FullName == interfaceFullName);
         }
     }
 }

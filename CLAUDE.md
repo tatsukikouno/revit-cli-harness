@@ -4,27 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Revit 2024 harness add-in project that enables external CLI/agent execution of tests and arbitrary code within a running Revit instance. The system allows DLL hot-swapping via shadow copying while Revit is running.
+A Revit 2024 harness add-in that enables external CLI/agent execution of tests, commands, and element inspection within a running Revit instance. Supports DLL hot-swapping via shadow copy + byte-array loading without restarting Revit.
 
 ### Key Architecture
 
-- **IPC Communication**: Named Pipe (`\\.\pipe\RevitHarness2024`) for CLI ⇄ Revit communication
-- **Thread Safety**: All Revit API calls must go through `ExternalEvent` to run on Revit's main thread
-- **Shadow Copy**: DLLs are copied to `%LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\` before loading to avoid file locks
+- **IPC Communication**: Named Pipe (`\\.\pipe\RevitHarness2024`) with JSON messages and int32 LE length-prefix framing
+- **Thread Safety**: All Revit API calls go through `ExternalEvent` → `HarnessEventHandler.Execute()` on Revit's main thread. A 100ms polling timer in `App.cs` raises the event when requests are pending.
+- **Shadow Copy + Byte Load**: DLLs are copied to `%LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\`, then loaded via `Assembly.Load(byte[])` to bypass the .NET assembly cache entirely. This enables true hot-reload of same-name/same-version assemblies. Old shadow dirs auto-clean (max 10 generations, >1 day old).
+- **Mixed Frameworks**: Addin/Contracts/Lookup target .NET Framework 4.8 (Revit requirement); CLI targets .NET 8.0
+- **Embedded Resources**: CLI embeds the Addin build output as EmbeddedResources for self-contained `install` deployment
 
 ### NuGet Packages
 
 | Package | Purpose | Distribution |
 |---------|---------|--------------|
-| `RevitHarness.Contracts` | Developer references ITestEntryPoint etc. | NuGet.org |
-| `RevitHarness.Cli` | CLI + embedded addin | dotnet tool |
+| `RevitHarness.Contracts` | ITestEntryPoint, IHarnessCommand, HarnessCommandBase | NuGet.org |
+| `RevitHarness.Cli` | CLI dotnet tool + embedded addin DLLs | NuGet.org (dotnet tool) |
 
 ## Build Commands
 
 ```bash
-# Build the solution (x64 only)
+# Build the solution (x64 only - must use x64 platform)
 dotnet build revit-cli-harness.sln -c Debug
-dotnet build revit-cli-harness.sln -c Release
 
 # Build single project
 dotnet build src/RevitHarness.Contracts
@@ -32,145 +33,95 @@ dotnet build src/RevitHarness.Addin
 dotnet build src/RevitHarness.Cli
 
 # Generate NuGet packages
-dotnet pack src/RevitHarness.Contracts
-dotnet pack src/RevitHarness.Cli
+dotnet pack src/RevitHarness.Contracts -c Release
+dotnet pack src/RevitHarness.Cli -c Release
 ```
 
-## Development Notes
-
-- **Target Framework**: .NET Framework 4.8 (x64 only)
-- **Revit References**: RevitAPI.dll and RevitAPIUI.dll from `C:\Program Files\Autodesk\Revit 2024\`
-- **Namespaces**:
-  - `RevitHarness.Contracts` - Shared interfaces
-  - `RevitHarness.Addin` - Revit add-in
-  - `RevitHarness.Cli` - CLI tool
-- **Debug**: Set to launch `C:\Program Files\Autodesk\Revit 2024\Revit.exe`
+**Important**: Build the Addin project before the CLI project. The CLI embeds Addin build outputs as resources (see `RevitHarness.Cli.csproj` EmbeddedResource items with `Condition="Exists(...)"`). Building via the solution handles this dependency automatically.
 
 ## Project Structure
 
 ```
-revit-cli-harness/
-├── src/
-│   ├── RevitHarness.Contracts/     # Shared interfaces (NuGet package)
-│   │   ├── ITestEntryPoint.cs
-│   │   ├── IHarnessCommand.cs
-│   │   └── RevitHarness.Contracts.csproj
-│   │
-│   ├── RevitHarness.Addin/         # Revit add-in
-│   │   ├── App.cs                  # IExternalApplication implementation
-│   │   ├── Ipc/
-│   │   │   ├── IpcMessages.cs      # Request/Response message classes
-│   │   │   ├── IpcServer.cs        # Named Pipe server
-│   │   │   ├── HarnessEventHandler.cs  # ExternalEvent handler
-│   │   │   └── ShadowCopier.cs     # DLL shadow copy mechanism
-│   │   ├── RevitHarness.addin      # Add-in manifest
-│   │   └── RevitHarness.Addin.csproj
-│   │
-│   └── RevitHarness.Cli/           # CLI tool (dotnet tool)
-│       ├── Program.cs              # Main entry point
-│       ├── IpcClient.cs            # Named Pipe client
-│       ├── IpcMessages.cs          # Message classes for CLI
-│       ├── Installation/
-│       │   └── RevitInstaller.cs   # Addin deployment
-│       └── RevitHarness.Cli.csproj
+src/
+├── RevitHarness.Contracts/          # net48 - Shared interfaces (NuGet package)
+│   ├── ITestEntryPoint.cs           # Test entry point interface
+│   ├── IHarnessCommand.cs           # CLI-only command interface
+│   └── HarnessCommandBase.cs        # Dual-use: CLI (IHarnessCommand) + Ribbon (IExternalCommand)
 │
-├── Directory.Build.props           # Common build settings
-├── Directory.Packages.props        # Centralized package versions
-└── revit-cli-harness.sln
+├── RevitHarness.Addin/              # net48 - Revit add-in (UseWPF=true)
+│   ├── App.cs                       # IExternalApplication: starts IpcServer, ExternalEvent, ribbon
+│   ├── Commands/
+│   │   ├── CommandExecutor.cs       # Shadow copy + reflection execution engine
+│   │   ├── AssemblyScanner.cs       # Discovers IHarnessCommand/IExternalCommand types in DLLs
+│   │   └── OpenAddinManagerCommand.cs
+│   ├── Ipc/
+│   │   ├── IpcMessages.cs           # Request/Response/Operations/ErrorCodes
+│   │   ├── IpcServer.cs             # Named Pipe server with concurrent request queue
+│   │   ├── HarnessEventHandler.cs   # Dispatches IPC ops on Revit main thread
+│   │   └── ShadowCopier.cs          # Shadow copy + byte-array assembly loading
+│   └── UI/
+│       └── AddinManagerWindow.xaml   # GUI for browsing DLLs and executing commands
+│
+├── RevitHarness.Lookup/             # net48 - Element inspection (RevitLookup-style)
+│   ├── ElementInspector.cs          # Main inspection entry point
+│   ├── InspectOptions.cs            # Depth, filters, member visibility options
+│   └── Descriptors/                 # Type-specific value formatters (Element, XYZ, Curve, etc.)
+│
+└── RevitHarness.Cli/                # net8.0 - CLI tool (dotnet tool)
+    ├── Program.cs                   # Command routing (manual arg parsing, no library)
+    ├── IpcClient.cs                 # Named Pipe client
+    ├── IpcMessages.cs               # Message classes (separate copy from Addin)
+    └── Installation/
+        └── RevitInstaller.cs        # Extracts embedded resources to Revit addins folder
+
+lib/LookupEngine/                    # External library used by RevitHarness.Lookup
 ```
+
+## Development Notes
+
+- **Target Frameworks**: Addin/Contracts/Lookup = net48 (x64); CLI = net8.0
+- **Revit References**: RevitAPI.dll and RevitAPIUI.dll from `C:\Program Files\Autodesk\Revit 2024\` (referenced with `Private=False`)
+- **C# Language Version**: 9.0 with nullable enabled, warnings as errors (see `Directory.Build.props`)
+- **Central Package Management**: Versions in `Directory.Packages.props`
+- **Debug**: Addin project configured to launch Revit.exe directly
+- **IpcMessages duplication**: Both Addin and CLI have their own `IpcMessages.cs` because they target different frameworks
+
+## IPC Protocol
+
+Operations dispatched in `HarnessEventHandler.ProcessRequest()`:
+- `ping` — Health check, returns Revit version/process info
+- `runTests` — Shadow-copy DLL, load via reflection, execute `ITestEntryPoint.Run()`
+- `runCommand` — Execute `IHarnessCommand` or `IExternalCommand` via `CommandExecutor`
+- `lookupElement` — Inspect element by ElementId using `ElementInspector`
+- `shutdown` — Stop IPC server (Revit continues running)
+
+Exit codes: 0=success, 1=failure (`ok=false` or `passed=false`), 2=connection/timeout error
 
 ## CLI Usage
 
 ```bash
-# Install CLI globally
-dotnet tool install -g RevitHarness.Cli
-
-# Deploy addin to Revit
-revit-harness install --revit-version 2024
-
-# Check installation status
-revit-harness status
-
-# Check connection to Revit
-revit-harness ping
-
-# Run tests
-revit-harness run-tests --dll "path/to/tests.dll" --type "Company.Tests.EntryPoint" --filter "Smoke"
-
-# Run external command
-revit-harness run-command --dll "path/to/command.dll" --type "Company.MyCommand"
-
-# Post a registered Revit command
-revit-harness post-command --id "CustomCtrl_%CustomCtrl_%Add-Ins%Addin%Command"
-
-# Stop IPC server (Revit continues running)
-revit-harness shutdown
-
-# Uninstall addin
+revit-harness install --revit-version 2024 [--force]
 revit-harness uninstall --revit-version 2024
+revit-harness status [--revit-version 2024]
+revit-harness ping
+revit-harness run-tests --dll <path> --type <typename> [--filter <filter>] [--timeout <ms>]
+revit-harness run-command --dll <path> --type <typename> [--args '{"key":"value"}'] [--timeout <ms>]
+revit-harness post-command --id <commandId>
+revit-harness lookup --id <elementId> [--depth <n>] [--max-members <n>] [--include-fields] [--include-private] [--include-static] [--filter <name>]
+revit-harness shutdown
 ```
 
-## Installation Paths
+## Implementing Tests and Commands
 
-```
-%APPDATA%\Autodesk\Revit\Addins\2024\
-├── RevitHarness.addin              # Manifest
-└── RevitHarness/
-    ├── RevitHarness.Addin.dll
-    ├── RevitHarness.Contracts.dll
-    └── Newtonsoft.Json.dll
+```bash
+dotnet add package RevitHarness.Contracts
 ```
 
-## IPC Protocol
-
-JSON messages with length-prefix framing (int32 LE). Operations:
-- `ping`: Health check, returns Revit version/process info
-- `runTests`: Shadow-copy DLL, load via reflection, execute `ITestEntryPoint`
-- `runCommand`: Execute `IHarnessCommand` or `IExternalCommand` via reflection
-- `postCommand`: Post a registered Revit command by ID
-- `shutdown`: Stop IPC server
-
-Exit codes: 0=success, 1=failure, 2=connection/timeout error
-
-## Implementing Test Entry Points
-
-To create a test that can be executed via the harness, install `RevitHarness.Contracts` and implement `ITestEntryPoint`:
-
-```csharp
-using RevitHarness.Contracts;
-
-public class MyTestEntryPoint : ITestEntryPoint
-{
-    public string Run(UIApplication uiapp, IDictionary<string, object> args)
-    {
-        // Your test logic here
-        return JsonConvert.SerializeObject(new {
-            passed = true,
-            summary = "All tests passed"
-        });
-    }
-}
-```
-
-## Implementing Commands
-
-For commands, implement `IHarnessCommand`:
-
-```csharp
-using RevitHarness.Contracts;
-
-public class MyCommand : IHarnessCommand
-{
-    public string Execute(UIApplication uiapp)
-    {
-        // Your command logic here
-        return JsonConvert.SerializeObject(new {
-            result = "Command completed"
-        });
-    }
-}
-```
+Three patterns available:
+- **`ITestEntryPoint`** — For tests: `string Run(UIApplication uiapp, IDictionary<string, object> args)` — return JSON with `passed` field
+- **`IHarnessCommand`** — CLI-only commands: `string Execute(UIApplication uiapp, IDictionary<string, object> args)`
+- **`HarnessCommandBase`** — Dual-use class that works from both CLI (`IHarnessCommand`) and Revit ribbon (`IExternalCommand`) via a single `Execute` override
 
 ## Logs
 
-Logs are written to: `%LOCALAPPDATA%\RevitHarness\logs\harness_{date}.log`
+`%LOCALAPPDATA%\RevitHarness\logs\harness_{date}.log`

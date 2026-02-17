@@ -1,5 +1,6 @@
 #nullable enable
 
+using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using System;
@@ -15,6 +16,8 @@ namespace RevitHarness.Contracts
     /// <remarks>
     /// If your class already inherits from another base class, implement <see cref="IHarnessCommand"/> directly instead.
     /// </remarks>
+    [Transaction(TransactionMode.Manual)]
+    [Regeneration(RegenerationOption.Manual)]
     public abstract class HarnessCommandBase : IHarnessCommand, IExternalCommand
     {
         /// <inheritdoc />

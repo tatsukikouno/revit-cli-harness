@@ -2,7 +2,6 @@
 
 using Autodesk.Revit.UI;
 using RevitHarness.Addin.Ipc;
-using RevitHarness.Contracts;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -20,6 +19,9 @@ namespace RevitHarness.Addin.Commands
 
     public class AssemblyScanner
     {
+        private const string HarnessCommandInterfaceName = "RevitHarness.Contracts.IHarnessCommand";
+        private const string ExternalCommandInterfaceName = "Autodesk.Revit.UI.IExternalCommand";
+
         private readonly ShadowCopier _shadowCopier;
         private readonly Action<string> _log;
 
@@ -61,7 +63,10 @@ namespace RevitHarness.Addin.Commands
                     if (type == null || type.IsAbstract || type.IsInterface)
                         continue;
 
-                    if (typeof(IHarnessCommand).IsAssignableFrom(type))
+                    // Use name-based interface checks to handle assembly identity mismatches
+                    // when RevitHarness.Contracts is loaded in multiple contexts
+                    // (e.g., both by the Harness addin and by RevitSDK AddIn Manager).
+                    if (ReflectionHelper.ImplementsInterfaceByName(type, HarnessCommandInterfaceName))
                     {
                         results.Add(new DiscoveredType
                         {
@@ -71,7 +76,7 @@ namespace RevitHarness.Addin.Commands
                             InterfaceType = "IHarnessCommand"
                         });
                     }
-                    else if (typeof(IExternalCommand).IsAssignableFrom(type))
+                    else if (ReflectionHelper.ImplementsInterfaceByName(type, ExternalCommandInterfaceName))
                     {
                         results.Add(new DiscoveredType
                         {
@@ -100,5 +105,6 @@ namespace RevitHarness.Addin.Commands
 
             return results;
         }
+
     }
 }

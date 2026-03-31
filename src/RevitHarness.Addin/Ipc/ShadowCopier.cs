@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -19,12 +20,28 @@ namespace RevitHarness.Addin.Ipc
 
         private readonly string _shadowRoot;
         private readonly Action<string> _log;
+        private readonly ConcurrentDictionary<string, Assembly> _pinnedAssemblies = new ConcurrentDictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
 
         public ShadowCopier(Action<string> log)
         {
             _log = log;
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             _shadowRoot = Path.Combine(localAppData, "RevitHarness", "shadow");
+        }
+
+        /// <summary>
+        /// Pins an assembly so that the resolver always returns it instead of searching the AppDomain.
+        /// Use this for infrastructure assemblies (e.g., RevitHarness.Contracts) to prevent conflicts
+        /// when other addins (e.g., RevitSDK AddIn Manager) load duplicate copies.
+        /// </summary>
+        public void PinAssembly(Assembly assembly)
+        {
+            var name = assembly.GetName().Name;
+            if (name != null)
+            {
+                _pinnedAssemblies.TryAdd(name, assembly);
+                _log($"Pinned assembly: {name} -> {assembly.FullName}");
+            }
         }
 
         /// <summary>
@@ -131,7 +148,17 @@ namespace RevitHarness.Addin.Ipc
                     return cached;
                 }
 
-                // Check if already loaded in AppDomain (e.g., RevitHarness.Contracts loaded by the addin).
+                // Check pinned assemblies first. These are infrastructure assemblies (e.g., RevitHarness.Contracts)
+                // that must always resolve to the Harness addin's own copy, even when other addins
+                // (e.g., RevitSDK AddIn Manager) have loaded duplicate copies into the AppDomain.
+                if (_pinnedAssemblies.TryGetValue(requestedName, out var pinned))
+                {
+                    _log($"Resolved from pinned: {requestedName} -> {pinned.FullName}");
+                    loadedAssemblies[requestedName] = pinned;
+                    return pinned;
+                }
+
+                // Check if already loaded in AppDomain.
                 // This prevents loading a duplicate from shadow bytes which would create
                 // a different type identity, causing IsAssignableFrom checks to fail.
                 var existing = Array.Find(

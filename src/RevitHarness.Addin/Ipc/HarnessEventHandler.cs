@@ -26,6 +26,8 @@ namespace RevitHarness.Addin.Ipc
         private readonly Action<string> _log;
         private UIApplication? _uiapp;
 
+        private const string TestEntryPointInterfaceName = "RevitHarness.Contracts.ITestEntryPoint";
+
         public HarnessEventHandler(IpcServer server, Action<string> log)
         {
             _server = server;
@@ -33,6 +35,10 @@ namespace RevitHarness.Addin.Ipc
             _commandExecutor = new CommandExecutor(_shadowCopier, log);
             _logs = new List<string>();
             _log = log;
+
+            // Pin the Contracts assembly so that the resolver always returns the Harness addin's copy,
+            // even when other addins (e.g., RevitSDK AddIn Manager) load duplicate copies.
+            _shadowCopier.PinAssembly(typeof(ITestEntryPoint).Assembly);
         }
 
         public string GetName() => "RevitHarnessEventHandler";
@@ -173,8 +179,10 @@ namespace RevitHarness.Addin.Ipc
                 }
                 Log($"Entry type found: {type.FullName}");
 
-                // Check if type implements ITestEntryPoint
-                if (!typeof(ITestEntryPoint).IsAssignableFrom(type))
+                // Check if type implements ITestEntryPoint.
+                // Use name-based check to handle assembly identity mismatches when
+                // RevitHarness.Contracts is loaded in multiple contexts (e.g., by AddIn Manager).
+                if (!ReflectionHelper.ImplementsInterfaceByName(type, TestEntryPointInterfaceName))
                 {
                     return IpcResponse.Failure(
                         request.Id,
@@ -185,14 +193,36 @@ namespace RevitHarness.Addin.Ipc
 
                 // Create instance and run
                 Log("Creating instance");
-                var instance = (ITestEntryPoint)Activator.CreateInstance(type)!;
+                var instance = Activator.CreateInstance(type)!;
                 Log("Running tests");
 
-                var resultJson = instance.Run(_uiapp!, args);
+                string? resultJson;
+                if (instance is ITestEntryPoint testEntry)
+                {
+                    resultJson = testEntry.Run(_uiapp!, args);
+                }
+                else
+                {
+                    // Fallback: invoke via reflection to handle cross-context type identity mismatch
+                    Log("Direct cast failed (assembly context mismatch), using reflection");
+                    var runMethod = ReflectionHelper.FindMethod(
+                        type,
+                        "Run",
+                        new[] { typeof(UIApplication), typeof(IDictionary<string, object>) });
+                    if (runMethod == null)
+                    {
+                        return IpcResponse.Failure(
+                            request.Id,
+                            ErrorCodes.TypeNotFound,
+                            $"Type {entryType} declares ITestEntryPoint but Run method not found",
+                            sw.ElapsedMilliseconds);
+                    }
+                    resultJson = (string?)runMethod.Invoke(instance, new object[] { _uiapp!, args });
+                }
                 Log("Tests completed");
 
                 // Parse result to extract passed status
-                var resultObj = JsonConvert.DeserializeObject<Dictionary<string, object>>(resultJson);
+                var resultObj = JsonConvert.DeserializeObject<Dictionary<string, object>>(resultJson ?? "{}");
                 var passed = false;
                 if (resultObj != null && resultObj.TryGetValue("passed", out var passedValue))
                 {

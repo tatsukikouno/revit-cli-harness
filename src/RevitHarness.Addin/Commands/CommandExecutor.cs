@@ -7,7 +7,6 @@ using RevitHarness.Contracts;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 
 namespace RevitHarness.Addin.Commands
@@ -29,6 +28,7 @@ namespace RevitHarness.Addin.Commands
     public class CommandExecutor
     {
         private const string HarnessCommandInterfaceName = "RevitHarness.Contracts.IHarnessCommand";
+        private const string ExternalCommandInterfaceName = "Autodesk.Revit.UI.IExternalCommand";
 
         private readonly ShadowCopier _shadowCopier;
         private readonly Action<string> _log;
@@ -75,7 +75,7 @@ namespace RevitHarness.Addin.Commands
                 // Use name-based check first because Assembly.Load(byte[]) can cause type identity
                 // mismatches when RevitHarness.Contracts is loaded in multiple assembly contexts
                 // (e.g., both the harness addin and another addin load their own copy).
-                if (ImplementsInterfaceByName(type, HarnessCommandInterfaceName))
+                if (ReflectionHelper.ImplementsInterfaceByName(type, HarnessCommandInterfaceName))
                 {
                     _log("Creating harness command instance (IHarnessCommand)");
                     var instance = Activator.CreateInstance(type)!;
@@ -97,7 +97,8 @@ namespace RevitHarness.Addin.Commands
 
                     // Fallback: invoke via reflection to handle cross-context type identity mismatch
                     _log("Direct cast failed (assembly context mismatch), using reflection");
-                    var executeMethod = type.GetMethod(
+                    var executeMethod = ReflectionHelper.FindMethod(
+                        type,
                         "Execute",
                         new[] { typeof(UIApplication), typeof(IDictionary<string, object>) });
 
@@ -122,8 +123,8 @@ namespace RevitHarness.Addin.Commands
                     };
                 }
 
-                // Fallback: Check if type implements IExternalCommand
-                if (typeof(IExternalCommand).IsAssignableFrom(type))
+                // Fallback: Check if type implements IExternalCommand (name-based for consistency)
+                if (ReflectionHelper.ImplementsInterfaceByName(type, ExternalCommandInterfaceName))
                 {
                     _log("Creating IExternalCommand instance");
                     var command = (IExternalCommand)Activator.CreateInstance(type)!;
@@ -170,14 +171,5 @@ namespace RevitHarness.Addin.Commands
             }
         }
 
-        /// <summary>
-        /// Checks if a type implements an interface by comparing full names.
-        /// This avoids false negatives from .NET type identity mismatches that occur when
-        /// the same assembly (e.g., RevitHarness.Contracts) is loaded in multiple contexts.
-        /// </summary>
-        private static bool ImplementsInterfaceByName(Type type, string interfaceFullName)
-        {
-            return type.GetInterfaces().Any(i => i.FullName == interfaceFullName);
-        }
     }
 }

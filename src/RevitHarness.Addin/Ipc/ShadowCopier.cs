@@ -138,7 +138,8 @@ namespace RevitHarness.Addin.Ipc
             // Create resolver for dependencies in the shadow directory
             ResolveEventHandler resolver = (sender, args) =>
             {
-                var requestedName = new AssemblyName(args.Name).Name;
+                var requestedAssemblyName = new AssemblyName(args.Name);
+                var requestedName = requestedAssemblyName.Name;
                 if (requestedName == null) return null;
 
                 // Check if already loaded by us
@@ -161,18 +162,35 @@ namespace RevitHarness.Addin.Ipc
                 // Check if already loaded in AppDomain.
                 // This prevents loading a duplicate from shadow bytes which would create
                 // a different type identity, causing IsAssignableFrom checks to fail.
+                // However, if the AppDomain version is OLDER than what's requested and
+                // the shadow directory has the needed version, skip to shadow loading.
+                // This handles cases where Revit (or another addin) loaded an older version
+                // (e.g., DependencyInjection.Abstractions v2.2.0) that's incompatible with
+                // the user DLL's dependencies (e.g., v9.0.6).
+                var dllPath = Path.Combine(shadowDir, requestedName + ".dll");
                 var existing = Array.Find(
                     AppDomain.CurrentDomain.GetAssemblies(),
                     a => string.Equals(a.GetName().Name, requestedName, StringComparison.OrdinalIgnoreCase));
                 if (existing != null)
                 {
-                    _log($"Resolved from AppDomain: {requestedName} -> {existing.FullName}");
-                    loadedAssemblies[requestedName] = existing;
-                    return existing;
+                    var existingVersion = existing.GetName().Version;
+                    var requestedVersion = requestedAssemblyName.Version;
+
+                    if (requestedVersion != null && existingVersion != null
+                        && existingVersion < requestedVersion
+                        && File.Exists(dllPath))
+                    {
+                        _log($"AppDomain has {requestedName} v{existingVersion} but v{requestedVersion} requested, loading from shadow");
+                    }
+                    else
+                    {
+                        _log($"Resolved from AppDomain: {requestedName} -> {existing.FullName}");
+                        loadedAssemblies[requestedName] = existing;
+                        return existing;
+                    }
                 }
 
                 // Try to load from shadow directory
-                var dllPath = Path.Combine(shadowDir, requestedName + ".dll");
                 if (File.Exists(dllPath))
                 {
                     _log($"Resolving dependency from shadow: {requestedName}");

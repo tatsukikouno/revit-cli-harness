@@ -135,6 +135,61 @@ namespace RevitHarness.Addin.Ipc
             _log($"Loaded from bytes: {assembly.FullName}");
             loadedAssemblies[assembly.GetName().Name!] = assembly;
 
+            // Eagerly preload shadow DLLs that conflict with versions in the AppDomain
+            // or Revit's app base directory. Assembly.Load(byte[]) dependencies are resolved
+            // using the host AppDomain's binding context, which probes Revit's install folder
+            // and may find older incompatible versions WITHOUT firing AssemblyResolve.
+            // Preloading ensures the CLR finds the correct version by identity match first.
+            var mainFileName = Path.GetFileName(assemblyPath);
+            foreach (var depDllPath in Directory.GetFiles(shadowDir, "*.dll"))
+            {
+                var depFileName = Path.GetFileName(depDllPath);
+                if (string.Equals(depFileName, mainFileName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var depName = Path.GetFileNameWithoutExtension(depDllPath);
+                if (loadedAssemblies.ContainsKey(depName) || _pinnedAssemblies.ContainsKey(depName))
+                    continue;
+
+                try
+                {
+                    var shadowAsmName = AssemblyName.GetAssemblyName(depDllPath);
+                    var shadowVersion = shadowAsmName.Version;
+
+                    var existing = Array.Find(
+                        AppDomain.CurrentDomain.GetAssemblies(),
+                        a => string.Equals(a.GetName().Name, depName, StringComparison.OrdinalIgnoreCase));
+
+                    if (existing != null && Equals(existing.GetName().Version, shadowVersion))
+                        continue;
+
+                    var depBytes = File.ReadAllBytes(depDllPath);
+                    byte[]? depPdbBytes = null;
+                    var depPdbPath = Path.ChangeExtension(depDllPath, ".pdb");
+                    if (File.Exists(depPdbPath))
+                        depPdbBytes = File.ReadAllBytes(depPdbPath);
+
+                    var depAssembly = depPdbBytes != null
+                        ? Assembly.Load(depBytes, depPdbBytes)
+                        : Assembly.Load(depBytes);
+
+                    loadedAssemblies[depName] = depAssembly;
+
+                    if (existing != null)
+                        _log($"Preloaded (conflict): {depName} v{shadowVersion} (AppDomain has v{existing.GetName().Version})");
+                    else
+                        _log($"Preloaded: {depName} v{shadowVersion}");
+                }
+                catch (BadImageFormatException)
+                {
+                    // Not a .NET assembly (native DLL), skip silently
+                }
+                catch (Exception ex)
+                {
+                    _log($"Preload skipped {depName}: {ex.Message}");
+                }
+            }
+
             // Create resolver for dependencies in the shadow directory
             ResolveEventHandler resolver = (sender, args) =>
             {

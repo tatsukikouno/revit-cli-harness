@@ -20,8 +20,6 @@ namespace RevitHarness.Cli.Installation
             "RevitHarness.Lookup.dll",
             "LookupEngine.dll",
             "LookupEngine.Abstractions.dll",
-            "System.Text.Json.dll",
-            "System.Text.Encodings.Web.dll",
             "System.Memory.dll",
             "System.Buffers.dll",
             "System.Runtime.CompilerServices.Unsafe.dll",

@@ -20,10 +20,10 @@
 
   <ItemGroup>
     <Reference Include="LookupEngine">
-      <HintPath>C:\ProgramData\Autodesk\Revit\Addins\2024\RevitLookup\LookupEngine.dll</HintPath>
+      <HintPath>..\..\lib\LookupEngine\LookupEngine.dll</HintPath>
     </Reference>
     <Reference Include="LookupEngine.Abstractions">
-      <HintPath>C:\ProgramData\Autodesk\Revit\Addins\2024\RevitLookup\LookupEngine.Abstractions.dll</HintPath>
+      <HintPath>..\..\lib\LookupEngine\LookupEngine.Abstractions.dll</HintPath>
     </Reference>
   </ItemGroup>
 

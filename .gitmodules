@@ -1,3 +1,0 @@
-[submodule "lib/LookupEngine"]
-	path = lib/LookupEngine
-	url = https://github.com/lookup-foundation/LookupEngine.git

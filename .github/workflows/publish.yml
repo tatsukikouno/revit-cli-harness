@@ -1,0 +1,33 @@
+name: Publish NuGet Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Build solution
+        run: dotnet build revit-cli-harness.sln -c Release -p:Version=${{ steps.version.outputs.VERSION }}
+
+      - name: Pack Contracts
+        run: dotnet pack src/RevitHarness.Contracts -c Release -p:Version=${{ steps.version.outputs.VERSION }} --no-build -o ./nupkgs
+
+      - name: Pack CLI
+        run: dotnet pack src/RevitHarness.Cli -c Release -p:Version=${{ steps.version.outputs.VERSION }} --no-build -o ./nupkgs
+
+      - name: Push to NuGet.org
+        run: dotnet nuget push ./nupkgs/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

@@ -71,10 +71,10 @@ jobs:
         run: dotnet build revit-cli-harness.sln -c Release -p:Version=${{ needs.resolve-version.outputs.version }}
 
       - name: Pack Contracts
-        run: dotnet pack src/RevitHarness.Contracts -c Release -p:Version=${{ needs.resolve-version.outputs.version }} --no-build -o ./nupkgs
+        run: dotnet pack src/RevitHarness.Contracts -c Release -p:Version=${{ needs.resolve-version.outputs.version }} -p:Platform=x64 --no-build -o ./nupkgs
 
       - name: Pack CLI
-        run: dotnet pack src/RevitHarness.Cli -c Release -p:Version=${{ needs.resolve-version.outputs.version }} --no-build -o ./nupkgs
+        run: dotnet pack src/RevitHarness.Cli -c Release -p:Version=${{ needs.resolve-version.outputs.version }} -p:Platform=x64 --no-build -o ./nupkgs
 
       - name: NuGet login (OIDC -> temp API key)
         uses: NuGet/login@v1

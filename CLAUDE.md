@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Revit 2024 harness add-in that enables external CLI/agent execution of tests, commands, and element inspection within a running Revit instance. Supports DLL hot-swapping via shadow copy + byte-array loading without restarting Revit.
+A Revit 2024/2025/2026 harness add-in that enables external CLI/agent execution of tests, commands, and (Revit 2024 only) element inspection within a running Revit instance. Supports DLL hot-swapping via shadow copy + byte-array loading without restarting Revit.
 
 ### Key Architecture
 
 - **IPC Communication**: Named Pipe (`\\.\pipe\RevitHarness2024`) with JSON messages and int32 LE length-prefix framing
 - **Thread Safety**: All Revit API calls go through `ExternalEvent` → `HarnessEventHandler.Execute()` on Revit's main thread. A 100ms polling timer in `App.cs` raises the event when requests are pending.
 - **Shadow Copy + Byte Load**: DLLs are copied to `%LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\`, then loaded via `Assembly.Load(byte[])` to bypass the .NET assembly cache entirely. This enables true hot-reload of same-name/same-version assemblies. Old shadow dirs auto-clean (max 10 generations, >1 day old).
-- **Mixed Frameworks**: Addin/Contracts/Lookup target .NET Framework 4.8 (Revit requirement); CLI targets .NET 8.0
+- **Mixed Frameworks**: Addin multi-targets per Revit year via Configuration suffix (`R24`/`R25`/`R26`) — `net48` for Revit 2024, `net8.0-windows` for Revit 2025/2026. Contracts multi-targets `net48;net8.0-windows` directly (published NuGet package). Lookup stays `net48`-only (Revit 2024 only, see `lookupElement` note below). CLI targets `net8.0` (a `dotnet tool` cannot use a Windows-specific TFM).
 - **Embedded Resources**: CLI embeds the Addin build output as EmbeddedResources for self-contained `install` deployment
 
 ### NuGet Packages
@@ -24,12 +24,20 @@ A Revit 2024 harness add-in that enables external CLI/agent execution of tests, 
 ## Build Commands
 
 ```bash
-# Build the solution (x64 only - must use x64 platform)
+# Build the Addin for a specific Revit year (must be built before the CLI, once per supported year).
+# -p:Platform=x64 is required for a direct project build to land in bin\x64\... — without it, the
+# output path omits the x64 segment and the CLI's embedded-resource glob won't find it.
+dotnet build src/RevitHarness.Addin -c "Debug R24" -p:Platform=x64    # Revit 2024 (net48)
+dotnet build src/RevitHarness.Addin -c "Debug R25" -p:Platform=x64    # Revit 2025 (net8.0-windows)
+dotnet build src/RevitHarness.Addin -c "Debug R26" -p:Platform=x64    # Revit 2026 (net8.0-windows)
+
+# Build the solution (Platform=x64 is resolved automatically via the .sln's configuration mapping).
+# Plain Debug/Release map Addin to its R24/Revit-2024 build, for backward compatibility.
 dotnet build revit-cli-harness.sln -c Debug
 
 # Build single project
 dotnet build src/RevitHarness.Contracts
-dotnet build src/RevitHarness.Addin
+dotnet build src/RevitHarness.Addin -c "Debug R24" -p:Platform=x64
 dotnet build src/RevitHarness.Cli
 
 # Generate NuGet packages
@@ -37,7 +45,7 @@ dotnet pack src/RevitHarness.Contracts -c Release
 dotnet pack src/RevitHarness.Cli -c Release
 ```
 
-**Important**: Build the Addin project before the CLI project. The CLI embeds Addin build outputs as resources (see `RevitHarness.Cli.csproj` EmbeddedResource items with `Condition="Exists(...)"`). Building via the solution handles this dependency automatically.
+**Important**: Build the Addin project for all three configurations (`Debug R24`/`Debug R25`/`Debug R26`, or the `Release` equivalents) as **separate `dotnet build` invocations, before** building the CLI project or the solution. The CLI embeds each year's Addin build output as a version-prefixed resource (see `RevitHarness.Cli.csproj` `EmbeddedResource` items with `Condition="Exists(...)"`), and `RevitInstaller` selects the matching set at install time based on `--revit-version`. That `Exists(...)` condition is evaluated once, up front, and is *not* re-checked after a same-invocation dependency build finishes — so even a single `dotnet build revit-cli-harness.sln` run will silently embed nothing for whichever year's Addin output doesn't already exist on disk before that invocation starts (this is a pre-existing characteristic of the embedding mechanism, not specific to R25/R26). Always build R24/R25/R26 as their own prior commands first. `lookupElement` is only available in the R24 (Revit 2024, net48) build — R25/R26 builds return a `NOT_SUPPORTED` error for that operation because the `RevitHarness.Lookup` dependency (`lib/LookupEngine/*.dll`) is net48-only.
 
 ## Project Structure
 

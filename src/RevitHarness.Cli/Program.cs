@@ -128,10 +128,10 @@ namespace RevitHarness.Cli
 
 Installation Commands:
   install                       Install RevitHarness add-in to Revit
-    --revit-version <year>      Revit version (e.g., 2024) (required)
+    --revit-version <year>      Revit version (e.g., 2024, 2025, 2026) (required)
     --force                     Force reinstall if already installed
   uninstall                     Uninstall RevitHarness add-in from Revit
-    --revit-version <year>      Revit version (e.g., 2024) (required)
+    --revit-version <year>      Revit version (e.g., 2024, 2025, 2026) (required)
   status                        Show installation status
     --revit-version <year>      Revit version (optional, shows all if omitted)
 

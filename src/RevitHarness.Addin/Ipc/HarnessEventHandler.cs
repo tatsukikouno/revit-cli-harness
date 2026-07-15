@@ -5,7 +5,9 @@ using Autodesk.Revit.UI;
 using Newtonsoft.Json;
 using RevitHarness.Addin.Commands;
 using RevitHarness.Contracts;
+#if LOOKUP_SUPPORTED
 using RevitHarness.Lookup;
+#endif
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -320,6 +322,7 @@ namespace RevitHarness.Addin.Ipc
 
         private IpcResponse HandleLookupElement(IpcRequest request, Stopwatch sw)
         {
+#if LOOKUP_SUPPORTED
             var elementId = request.GetPayloadValue<int?>("elementId");
             if (!elementId.HasValue)
             {
@@ -369,6 +372,14 @@ namespace RevitHarness.Addin.Ipc
                     sw.ElapsedMilliseconds,
                     new { stackTrace = ex.ToString() });
             }
+#else
+            Log("lookupElement is not supported on this Revit version");
+            return IpcResponse.Failure(
+                request.Id,
+                ErrorCodes.NotSupported,
+                "lookupElement not supported on this Revit version yet",
+                sw.ElapsedMilliseconds);
+#endif
         }
 
         private IpcResponse HandleShutdown(IpcRequest request, Stopwatch sw)

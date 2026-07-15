@@ -13,23 +13,9 @@ namespace RevitHarness.Cli.Installation
     /// </summary>
     public static class RevitInstaller
     {
-        private static readonly string[] EmbeddedResources = new[]
-        {
-            "RevitHarness.Addin.dll",
-            "RevitHarness.Contracts.dll",
-            "RevitHarness.Lookup.dll",
-            "LookupEngine.dll",
-            "LookupEngine.Abstractions.dll",
-            "System.Memory.dll",
-            "System.Buffers.dll",
-            "System.Runtime.CompilerServices.Unsafe.dll",
-            "Microsoft.Bcl.AsyncInterfaces.dll",
-            "System.Threading.Tasks.Extensions.dll",
-            "System.Numerics.Vectors.dll",
-            "System.IO.Pipelines.dll",
-            "Newtonsoft.Json.dll",
-            "RevitHarness.addin"
-        };
+        private static readonly int[] SupportedRevitVersions = { 2024, 2025, 2026 };
+
+        private const string AddinManifestResourceName = "RevitHarness.addin";
 
         /// <summary>
         /// Gets the Revit addins folder path for a specific version.
@@ -125,6 +111,13 @@ namespace RevitHarness.Cli.Installation
         {
             var result = new InstallResult { RevitVersion = revitVersion };
 
+            if (Array.IndexOf(SupportedRevitVersions, revitVersion) < 0)
+            {
+                result.Success = false;
+                result.Message = $"Revit {revitVersion} is not supported by this CLI build. Supported versions: {string.Join(", ", SupportedRevitVersions)}";
+                return result;
+            }
+
             try
             {
                 var addinsFolder = GetAddinsFolder(revitVersion);
@@ -147,35 +140,46 @@ namespace RevitHarness.Cli.Installation
                     return result;
                 }
 
+                var assembly = Assembly.GetExecutingAssembly();
+                var prefix = revitVersion + "/";
+                var versionedResourceNames = Array.FindAll(
+                    assembly.GetManifestResourceNames(),
+                    name => name.StartsWith(prefix, StringComparison.Ordinal));
+
+                if (versionedResourceNames.Length == 0)
+                {
+                    result.Success = false;
+                    result.Message = $"No embedded add-in files found for Revit {revitVersion} in this CLI build.";
+                    return result;
+                }
+
                 // Create installation folder
                 Directory.CreateDirectory(installFolder);
 
-                var assembly = Assembly.GetExecutingAssembly();
                 var extractedFiles = new List<string>();
 
-                foreach (var resourceName in EmbeddedResources)
+                foreach (var resourceName in versionedResourceNames)
                 {
                     using var stream = assembly.GetManifestResourceStream(resourceName);
                     if (stream == null)
-                    {
-                        // Resource might not be embedded yet (first build)
-                        Console.Error.WriteLine($"Warning: Resource '{resourceName}' not found in assembly");
                         continue;
-                    }
 
-                    string destPath;
-                    if (resourceName.EndsWith(".addin", StringComparison.OrdinalIgnoreCase))
-                    {
-                        destPath = manifestPath;
-                    }
-                    else
-                    {
-                        destPath = Path.Combine(installFolder, resourceName);
-                    }
+                    var fileName = resourceName.Substring(prefix.Length);
+                    var destPath = Path.Combine(installFolder, fileName);
 
                     using var fileStream = File.Create(destPath);
                     stream.CopyTo(fileStream);
                     extractedFiles.Add(destPath);
+                }
+
+                using (var manifestStream = assembly.GetManifestResourceStream(AddinManifestResourceName))
+                {
+                    if (manifestStream != null)
+                    {
+                        using var manifestFileStream = File.Create(manifestPath);
+                        manifestStream.CopyTo(manifestFileStream);
+                        extractedFiles.Add(manifestPath);
+                    }
                 }
 
                 result.Success = true;

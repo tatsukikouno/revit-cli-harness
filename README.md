@@ -1,5 +1,8 @@
 # RevitHarness
 
+[![NuGet RevitHarness.Cli](https://img.shields.io/nuget/v/RevitHarness.Cli.svg?label=RevitHarness.Cli)](https://www.nuget.org/packages/RevitHarness.Cli/)
+[![NuGet RevitHarness.Contracts](https://img.shields.io/nuget/v/RevitHarness.Contracts.svg?label=RevitHarness.Contracts)](https://www.nuget.org/packages/RevitHarness.Contracts/)
+
 A harness add-in for Revit 2024 that enables CLI and agent-driven test execution, command execution, and element inspection against a running Revit instance. Supports DLL hot-swapping without restarting Revit.
 
 [日本語版 README](README.ja.md)

@@ -1,5 +1,8 @@
 # RevitHarness
 
+[![NuGet RevitHarness.Cli](https://img.shields.io/nuget/v/RevitHarness.Cli.svg?label=RevitHarness.Cli)](https://www.nuget.org/packages/RevitHarness.Cli/)
+[![NuGet RevitHarness.Contracts](https://img.shields.io/nuget/v/RevitHarness.Contracts.svg?label=RevitHarness.Contracts)](https://www.nuget.org/packages/RevitHarness.Contracts/)
+
 Revit 2024 用のハーネスアドイン。実行中の Revit インスタンスに対して、CLI やエージェントからテスト実行・コマンド実行・要素インスペクションを行える。DLL ホットスワップにより Revit 再起動なしでコードを更新可能。
 
 [English README](README.md)

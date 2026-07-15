@@ -1,10 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <!-- net8.0-windows (not plain net8.0): this tool only ever targets a local Windows/Revit
-         installation, and the build-order-only ProjectReference to RevitHarness.Addin below
-         requires a Windows-compatible TFM to reference the net8.0-windows (R25/R26) Addin build -->
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- Must stay a plain (non-Windows-suffixed) TFM: PackAsTool rejects TargetPlatformIdentifier-
+         bearing TargetFrameworks like net8.0-windows (NETSDK1146). -->
+    <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>RevitHarness.Cli</RootNamespace>
     <AssemblyName>revit-harness</AssemblyName>
 
@@ -25,29 +24,30 @@
     <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 
-  <!-- Embed addin files as resources -->
+  <!-- Embed addin files as resources, one set per supported Revit year -->
   <ItemGroup>
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\RevitHarness.Addin.dll" Link="Resources\RevitHarness.Addin.dll" LogicalName="RevitHarness.Addin.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\RevitHarness.Addin.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\RevitHarness.Contracts.dll" Link="Resources\RevitHarness.Contracts.dll" LogicalName="RevitHarness.Contracts.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\RevitHarness.Contracts.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\Newtonsoft.Json.dll" Link="Resources\Newtonsoft.Json.dll" LogicalName="Newtonsoft.Json.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\Newtonsoft.Json.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\RevitHarness.Lookup.dll" Link="Resources\RevitHarness.Lookup.dll" LogicalName="RevitHarness.Lookup.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\RevitHarness.Lookup.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\LookupEngine.dll" Link="Resources\LookupEngine.dll" LogicalName="LookupEngine.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\LookupEngine.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\LookupEngine.Abstractions.dll" Link="Resources\LookupEngine.Abstractions.dll" LogicalName="LookupEngine.Abstractions.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\LookupEngine.Abstractions.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\System.Memory.dll" Link="Resources\System.Memory.dll" LogicalName="System.Memory.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\System.Memory.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\System.Buffers.dll" Link="Resources\System.Buffers.dll" LogicalName="System.Buffers.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\System.Buffers.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\System.Runtime.CompilerServices.Unsafe.dll" Link="Resources\System.Runtime.CompilerServices.Unsafe.dll" LogicalName="System.Runtime.CompilerServices.Unsafe.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\System.Runtime.CompilerServices.Unsafe.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\Microsoft.Bcl.AsyncInterfaces.dll" Link="Resources\Microsoft.Bcl.AsyncInterfaces.dll" LogicalName="Microsoft.Bcl.AsyncInterfaces.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\Microsoft.Bcl.AsyncInterfaces.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\System.Threading.Tasks.Extensions.dll" Link="Resources\System.Threading.Tasks.Extensions.dll" LogicalName="System.Threading.Tasks.Extensions.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\System.Threading.Tasks.Extensions.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\System.Numerics.Vectors.dll" Link="Resources\System.Numerics.Vectors.dll" LogicalName="System.Numerics.Vectors.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\System.Numerics.Vectors.dll')" />
-    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration)\System.IO.Pipelines.dll" Link="Resources\System.IO.Pipelines.dll" LogicalName="System.IO.Pipelines.dll" Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration)\System.IO.Pipelines.dll')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration) R24\*.dll"
+                      Exclude="..\RevitHarness.Addin\bin\x64\$(Configuration) R24\RevitAPI.dll;..\RevitHarness.Addin\bin\x64\$(Configuration) R24\RevitAPIUI.dll"
+                      LogicalName="2024/%(Filename)%(Extension)"
+                      Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration) R24')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration) R25\*.dll"
+                      Exclude="..\RevitHarness.Addin\bin\x64\$(Configuration) R25\RevitAPI.dll;..\RevitHarness.Addin\bin\x64\$(Configuration) R25\RevitAPIUI.dll"
+                      LogicalName="2025/%(Filename)%(Extension)"
+                      Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration) R25')" />
+    <EmbeddedResource Include="..\RevitHarness.Addin\bin\x64\$(Configuration) R26\*.dll"
+                      Exclude="..\RevitHarness.Addin\bin\x64\$(Configuration) R26\RevitAPI.dll;..\RevitHarness.Addin\bin\x64\$(Configuration) R26\RevitAPIUI.dll"
+                      LogicalName="2026/%(Filename)%(Extension)"
+                      Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration) R26')" />
     <EmbeddedResource Include="..\RevitHarness.Addin\RevitHarness.addin" Link="Resources\RevitHarness.addin" LogicalName="RevitHarness.addin" />
   </ItemGroup>
 
-  <!-- Ensure Addin project is built first -->
+  <!-- Ensure Addin project is built first. SkipGetTargetFrameworkProperties avoids MSBuild's TFM
+       compatibility check, which would otherwise hard-fail when Addin resolves to net8.0-windows
+       (R25/R26) while this project stays plain net8.0 (required by PackAsTool, see above). -->
   <ItemGroup>
-    <ProjectReference Include="..\RevitHarness.Addin\RevitHarness.Addin.csproj">
-      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-    </ProjectReference>
+    <ProjectReference Include="..\RevitHarness.Addin\RevitHarness.Addin.csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
 
   <ItemGroup>

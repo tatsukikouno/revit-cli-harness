@@ -12,5 +12,9 @@
   <ItemGroup>
     <!-- JSON serialization -->
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
+
+    <!-- Revit API reference assemblies (compile-time only; Revit supplies the real DLLs at runtime) -->
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPI" Version="2024.3.40" />
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPIUI" Version="2024.3.40" />
   </ItemGroup>
 </Project>

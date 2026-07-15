@@ -1,7 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- net8.0-windows (not plain net8.0): this tool only ever targets a local Windows/Revit
+         installation, and the build-order-only ProjectReference to RevitHarness.Addin below
+         requires a Windows-compatible TFM to reference the net8.0-windows (R25/R26) Addin build -->
+    <TargetFramework>net8.0-windows</TargetFramework>
     <RootNamespace>RevitHarness.Cli</RootNamespace>
     <AssemblyName>revit-harness</AssemblyName>
 

@@ -18,7 +18,10 @@
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" />
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" PrivateAssets="all" />
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" PrivateAssets="all" />
+    <!-- RevitHarness.Lookup is net48-only (Revit 2024); pin explicitly rather than relying on the
+         R24/R25/R26 Configuration-suffix conditions in Directory.Packages.props, since this project's
+         own Configuration stays plain Debug/Release regardless of which Addin build references it -->
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" VersionOverride="2024.3.40" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" VersionOverride="2024.3.40" PrivateAssets="all" />
   </ItemGroup>
 </Project>

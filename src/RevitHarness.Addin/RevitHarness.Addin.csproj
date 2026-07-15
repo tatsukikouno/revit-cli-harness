@@ -1,14 +1,35 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net48</TargetFramework>
+    <Configurations>Debug R24;Release R24;Debug R25;Release R25;Debug R26;Release R26</Configurations>
+
+    <!-- Which Revit year this Configuration targets. Falls back to R24 for a plain "Debug"/"Release"
+         Configuration (e.g. when this project is built as a dependency of another project that
+         doesn't carry an R24/R25/R26 suffix, such as a direct `dotnet build` of RevitHarness.Cli). -->
+    <RevitYearSuffix Condition="$(Configuration.EndsWith('R24'))">R24</RevitYearSuffix>
+    <RevitYearSuffix Condition="$(Configuration.EndsWith('R25'))">R25</RevitYearSuffix>
+    <RevitYearSuffix Condition="$(Configuration.EndsWith('R26'))">R26</RevitYearSuffix>
+    <RevitYearSuffix Condition="'$(RevitYearSuffix)'==''">R24</RevitYearSuffix>
+
+    <TargetFramework Condition="'$(RevitYearSuffix)'=='R24'">net48</TargetFramework>
+    <TargetFramework Condition="'$(RevitYearSuffix)'=='R25' Or '$(RevitYearSuffix)'=='R26'">net8.0-windows</TargetFramework>
+
     <RootNamespace>RevitHarness.Addin</RootNamespace>
     <AssemblyName>RevitHarness.Addin</AssemblyName>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <UseWPF>true</UseWPF>
+    <!-- Revit loads this DLL directly (not via the .NET host), so package dependencies must be
+         physically copied next to it rather than resolved from deps.json/the NuGet cache -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
-  <ItemGroup>
+  <!-- lookupElement is only available on the net48 (Revit 2024) build; see HarnessEventHandler.cs -->
+  <PropertyGroup Condition="'$(RevitYearSuffix)'=='R24'">
+    <DefineConstants>$(DefineConstants);LOOKUP_SUPPORTED</DefineConstants>
+  </PropertyGroup>
+
+  <!-- net8.0-windows resolves WPF assemblies automatically via UseWPF; net48 needs them listed explicitly -->
+  <ItemGroup Condition="'$(RevitYearSuffix)'=='R24'">
     <Reference Include="PresentationFramework" />
     <Reference Include="PresentationCore" />
     <Reference Include="WindowsBase" />
@@ -17,7 +38,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RevitHarness.Contracts\RevitHarness.Contracts.csproj" />
-    <ProjectReference Include="..\RevitHarness.Lookup\RevitHarness.Lookup.csproj" />
+    <ProjectReference Include="..\RevitHarness.Lookup\RevitHarness.Lookup.csproj" Condition="'$(RevitYearSuffix)'=='R24'" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,6 +54,8 @@
   <!-- Debug settings -->
   <PropertyGroup>
     <StartAction>Program</StartAction>
-    <StartProgram>C:\Program Files\Autodesk\Revit 2024\Revit.exe</StartProgram>
+    <StartProgram Condition="'$(RevitYearSuffix)'=='R24'">C:\Program Files\Autodesk\Revit 2024\Revit.exe</StartProgram>
+    <StartProgram Condition="'$(RevitYearSuffix)'=='R25'">C:\Program Files\Autodesk\Revit 2025\Revit.exe</StartProgram>
+    <StartProgram Condition="'$(RevitYearSuffix)'=='R26'">C:\Program Files\Autodesk\Revit 2026\Revit.exe</StartProgram>
   </PropertyGroup>
 </Project>

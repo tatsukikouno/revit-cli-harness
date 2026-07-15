@@ -1,9 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFrameworks>net48;net8.0-windows</TargetFrameworks>
     <RootNamespace>RevitHarness.Contracts</RootNamespace>
     <AssemblyName>RevitHarness.Contracts</AssemblyName>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
 
     <!-- NuGet Package Settings -->
     <PackageId>RevitHarness.Contracts</PackageId>
@@ -14,9 +13,16 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" PrivateAssets="all" />
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" PrivateAssets="all" />
+  <!-- net48 build targets Revit 2024's API version -->
+  <ItemGroup Condition="'$(TargetFramework)'=='net48'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" VersionOverride="2024.3.40" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" VersionOverride="2024.3.40" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- net8.0-windows build is shared by Revit 2025/2026; pinned to the newer API version -->
+  <ItemGroup Condition="'$(TargetFramework)'=='net8.0-windows'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" VersionOverride="2026.4.0" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" VersionOverride="2026.4.0" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

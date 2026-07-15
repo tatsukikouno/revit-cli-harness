@@ -15,7 +15,12 @@
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
 
     <!-- Revit API reference assemblies (compile-time only; Revit supplies the real DLLs at runtime) -->
-    <PackageVersion Include="Nice3point.Revit.Api.RevitAPI" Version="2024.3.40" />
-    <PackageVersion Include="Nice3point.Revit.Api.RevitAPIUI" Version="2024.3.40" />
+    <!-- Used by RevitHarness.Addin / RevitHarness.Lookup, selected by Configuration suffix (R24/R25/R26) -->
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPI" Version="2024.3.40" Condition="$(Configuration.EndsWith('R24'))" />
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPI" Version="2025.4.0" Condition="$(Configuration.EndsWith('R25'))" />
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPI" Version="2026.4.0" Condition="$(Configuration.EndsWith('R26'))" />
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPIUI" Version="2024.3.40" Condition="$(Configuration.EndsWith('R24'))" />
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.4.0" Condition="$(Configuration.EndsWith('R25'))" />
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPIUI" Version="2026.4.0" Condition="$(Configuration.EndsWith('R26'))" />
   </ItemGroup>
 </Project>

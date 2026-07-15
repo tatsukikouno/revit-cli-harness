@@ -8,6 +8,9 @@
     <AssemblyName>RevitHarness.Addin</AssemblyName>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <UseWPF>true</UseWPF>
+    <!-- Revit loads this DLL directly (not via the .NET host), so package dependencies must be
+         physically copied next to it rather than resolved from deps.json/the NuGet cache -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <!-- lookupElement is only available on the net48 (Revit 2024) build; see HarnessEventHandler.cs -->
@@ -15,7 +18,8 @@
     <DefineConstants>$(DefineConstants);LOOKUP_SUPPORTED</DefineConstants>
   </PropertyGroup>
 
-  <ItemGroup>
+  <!-- net8.0-windows resolves WPF assemblies automatically via UseWPF; net48 needs them listed explicitly -->
+  <ItemGroup Condition="$(Configuration.EndsWith('R24'))">
     <Reference Include="PresentationFramework" />
     <Reference Include="PresentationCore" />
     <Reference Include="WindowsBase" />

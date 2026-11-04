@@ -3,6 +3,7 @@
 using Newtonsoft.Json;
 using RevitHarness.Cli.Installation;
 using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -63,6 +64,21 @@ namespace RevitHarness.Cli
 
                     case "lookup":
                         return await RunLookupAsync(args);
+
+                    case "dialog-log":
+                        return await RunDialogLogAsync(args);
+
+                    case "dialog-pending":
+                        return RunDialogPending(args);
+
+                    case "dialog-decide":
+                        return RunDialogDecide(args);
+
+                    case "dialog-watcher":
+                        return RunDialogWatcher(args);
+
+                    case "reload-allowlist":
+                        return await RunReloadAllowlistAsync();
 
                     case "--help":
                     case "-h":
@@ -127,11 +143,14 @@ namespace RevitHarness.Cli
             Console.Error.WriteLine(@"Usage: revit-harness <command> [options]
 
 Installation Commands:
-  install                       Install RevitHarness add-in to Revit
+  install                       Install the add-in to Revit, the dialog watcher to
+                                %LOCALAPPDATA%\RevitHarness\watcher and the SKILLs
     --revit-version <year>      Revit version (e.g., 2024, 2025, 2026) (required)
-    --force                     Force reinstall if already installed
-  uninstall                     Uninstall RevitHarness add-in from Revit
+    --skills-dir <path>         SKILL folder (optional, default: %USERPROFILE%\.claude\skills)
+  uninstall                     Remove the add-in; the last uninstall also removes the watcher
+                                and SKILLs (the dialogs data folder is kept)
     --revit-version <year>      Revit version (e.g., 2024, 2025, 2026) (required)
+    --skills-dir <path>         SKILL folder used at install (optional)
   status                        Show installation status
     --revit-version <year>      Revit version (optional, shows all if omitted)
 
@@ -148,6 +167,19 @@ IPC Commands:
     --args <json>               Arguments as JSON (optional, e.g., '{""key"":""value""}')
     --timeout <ms>              Timeout in milliseconds (optional, default: 300000)
   shutdown                      Stop the IPC server (Revit continues running)
+  dialog-log                    Show recent dialog auto-handling records (JSONL)
+    --count <n>                 Number of records (optional, default: 50)
+  dialog-pending                List unknown dialogs waiting for an external decision (JSON)
+    --all                       Include resolved and stale entries
+  dialog-decide                 Press an existing button of a pending dialog (via the DialogWatcher)
+    --id <pendingId>            Pending dialog id from dialog-pending (required)
+    --button <name>             Button name exactly as listed (or --button-id <automationId>)
+    --by <name>                 Who decided, e.g. the agent or model name (required)
+    --save-rule                 Also save an allowlist rule (reversible buttons only)
+    --timeout <ms>              Wait for the watcher (optional, default: 10000)
+  dialog-watcher start|stop|status
+                                Start (idempotent), stop or inspect the dialog watcher
+  reload-allowlist              Re-read and validate the dialog allowlist
   lookup                        Inspect a Revit element by ElementId
     --id <elementId>            Element ID to inspect (required)
     --depth <n>                 Max decomposition depth (default: 0)
@@ -169,7 +201,7 @@ Exit codes:
         private static int RunInstall(string[] args)
         {
             int? revitVersion = null;
-            bool force = false;
+            string? skillsDir = null;
 
             for (int i = 1; i < args.Length; i++)
             {
@@ -179,8 +211,13 @@ Exit codes:
                         if (i + 1 < args.Length && int.TryParse(args[++i], out var v))
                             revitVersion = v;
                         break;
-                    case "--force":
-                        force = true;
+                    case "--skills-dir":
+                        if (i + 1 >= args.Length)
+                        {
+                            Console.Error.WriteLine("Error: --skills-dir needs a path");
+                            return ExitFailure;
+                        }
+                        skillsDir = Path.GetFullPath(args[++i]);
                         break;
                 }
             }
@@ -193,7 +230,7 @@ Exit codes:
 
             Console.WriteLine($"Installing RevitHarness for Revit {revitVersion}...");
 
-            var result = RevitInstaller.Install(revitVersion.Value, force);
+            var result = new RevitInstaller(InstallLayout.Create(skillsDir)).Install(revitVersion.Value);
 
             if (result.Success)
             {
@@ -219,6 +256,7 @@ Exit codes:
         private static int RunUninstall(string[] args)
         {
             int? revitVersion = null;
+            string? skillsDir = null;
 
             for (int i = 1; i < args.Length; i++)
             {
@@ -227,6 +265,14 @@ Exit codes:
                     case "--revit-version":
                         if (i + 1 < args.Length && int.TryParse(args[++i], out var v))
                             revitVersion = v;
+                        break;
+                    case "--skills-dir":
+                        if (i + 1 >= args.Length)
+                        {
+                            Console.Error.WriteLine("Error: --skills-dir needs a path");
+                            return ExitFailure;
+                        }
+                        skillsDir = Path.GetFullPath(args[++i]);
                         break;
                 }
             }
@@ -239,7 +285,7 @@ Exit codes:
 
             Console.WriteLine($"Uninstalling RevitHarness from Revit {revitVersion}...");
 
-            var result = RevitInstaller.Uninstall(revitVersion.Value);
+            var result = new RevitInstaller(InstallLayout.Create(skillsDir)).Uninstall(revitVersion.Value);
 
             if (result.Success)
             {
@@ -276,15 +322,16 @@ Exit codes:
                 }
             }
 
+            var installer = new RevitInstaller(InstallLayout.Create(null));
             if (revitVersion.HasValue)
             {
                 // Show status for specific version
-                PrintStatusForVersion(revitVersion.Value);
+                PrintStatusForVersion(installer, revitVersion.Value);
             }
             else
             {
                 // Show status for all detected Revit versions
-                var versions = RevitInstaller.GetInstalledRevitVersions();
+                var versions = installer.GetInstalledRevitVersions();
 
                 if (versions.Count == 0)
                 {
@@ -297,7 +344,7 @@ Exit codes:
 
                 foreach (var version in versions)
                 {
-                    PrintStatusForVersion(version);
+                    PrintStatusForVersion(installer, version);
                     Console.WriteLine();
                 }
             }
@@ -305,9 +352,9 @@ Exit codes:
             return ExitSuccess;
         }
 
-        private static void PrintStatusForVersion(int revitVersion)
+        private static void PrintStatusForVersion(RevitInstaller installer, int revitVersion)
         {
-            var status = RevitInstaller.GetStatus(revitVersion);
+            var status = installer.GetStatus(revitVersion);
 
             var statusText = status.IsInstalled ? "INSTALLED" : "NOT INSTALLED";
             Console.WriteLine($"Revit {revitVersion}: {statusText}");
@@ -345,6 +392,143 @@ Exit codes:
             };
 
             var response = await client.SendRequestAsync(request);
+            Console.WriteLine(JsonConvert.SerializeObject(response, Formatting.Indented));
+
+            return response.Ok ? ExitSuccess : ExitFailure;
+        }
+
+        private static async Task<int> RunDialogLogAsync(string[] args)
+        {
+            int count = 50;
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (args[i].Equals("--count", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length && int.TryParse(args[++i], out var c))
+                    count = c;
+            }
+
+            using var client = new IpcClient();
+            await client.ConnectAsync();
+
+            var response = await client.SendRequestAsync(new IpcRequest
+            {
+                Id = Guid.NewGuid().ToString(),
+                Op = Operations.DialogLog,
+                Timestamp = DateTime.UtcNow.ToString("O"),
+                Payload = new Dictionary<string, object> { ["count"] = count }
+            });
+            Console.WriteLine(JsonConvert.SerializeObject(response, Formatting.Indented));
+
+            return response.Ok ? ExitSuccess : ExitFailure;
+        }
+
+        private static readonly System.Text.Json.JsonSerializerOptions DialogJson = new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+
+        private static int RunDialogPending(string[] args)
+        {
+            var all = args.Skip(1).Any(a => a.Equals("--all", StringComparison.OrdinalIgnoreCase));
+            var items = new RevitHarness.Dialogs.PendingStore().List(openOnly: !all);
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { ok = true, count = items.Count, pending = items }, DialogJson));
+            return ExitSuccess;
+        }
+
+        private static int RunDialogDecide(string[] args)
+        {
+            string? id = null, button = null, buttonId = null, by = null;
+            bool saveRule = false;
+            int timeoutMs = 10000;
+            for (int i = 1; i < args.Length; i++)
+            {
+                switch (args[i].ToLowerInvariant())
+                {
+                    case "--id": id = i + 1 < args.Length ? args[++i] : null; break;
+                    case "--button": button = i + 1 < args.Length ? args[++i] : null; break;
+                    case "--button-id": buttonId = i + 1 < args.Length ? args[++i] : null; break;
+                    case "--by": by = i + 1 < args.Length ? args[++i] : null; break;
+                    case "--save-rule": saveRule = true; break;
+                    case "--timeout":
+                        if (i + 1 >= args.Length || !int.TryParse(args[++i], out timeoutMs) || timeoutMs < 0)
+                            return PrintDialogUsageError("--timeout needs a non-negative integer (milliseconds)");
+                        break;
+                    default: return PrintDialogUsageError("unknown option: " + args[i]);
+                }
+            }
+
+            object Print(bool ok, string? error, RevitHarness.Dialogs.PendingDialog? pending) => new { ok, error, pending };
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(Print(false, "--id is required", null), DialogJson));
+                return ExitFailure;
+            }
+
+            var store = new RevitHarness.Dialogs.PendingStore();
+            var request = store.RequestDecision(id!, button, buttonId, by, saveRule);
+            if (!request.Ok)
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(Print(false, request.Error, request.Pending), DialogJson));
+                return ExitFailure;
+            }
+
+            var result = store.WaitForResolution(id!, TimeSpan.FromMilliseconds(timeoutMs));
+            if (result == null)
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(Print(false,
+                    "the DialogWatcher did not apply the decision in time (is it running? revit-harness dialog-watcher start); request withdrawn",
+                    store.Get(id!)), DialogJson));
+                return ExitConnectionError;
+            }
+
+            var ok = result.Status == RevitHarness.Dialogs.PendingStatus.Resolved;
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(
+                Print(ok, ok ? null : result.StaleReason ?? result.Resolution?.Note ?? result.Status, result), DialogJson));
+            return ok ? ExitSuccess : ExitFailure;
+        }
+
+        private static int RunDialogWatcher(string[] args)
+        {
+            var verb = args.Length == 2 ? args[1].ToLowerInvariant() : null;
+            if (verb != "start" && verb != "stop" && verb != "status")
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { ok = false, error = "usage: revit-harness dialog-watcher start|stop|status" }, DialogJson));
+                return ExitFailure;
+            }
+
+            var watcher = new WatcherControl(InstallLayout.Create(null));
+            var result = verb == "start" ? watcher.Start()
+                : verb == "stop" ? watcher.Stop()
+                : watcher.Status();
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+            {
+                ok = result.Ok,
+                message = result.Message,
+                running = result.State.Running,
+                pid = result.State.Pid,
+                logDirectory = result.State.LogDirectory,
+                latestLog = result.State.LatestLog
+            }, DialogJson));
+            return result.Ok ? ExitSuccess : ExitFailure;
+        }
+
+        private static int PrintDialogUsageError(string error)
+        {
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { ok = false, error, pending = (object?)null }, DialogJson));
+            return ExitFailure;
+        }
+
+        private static async Task<int> RunReloadAllowlistAsync()
+        {
+            using var client = new IpcClient();
+            await client.ConnectAsync();
+
+            var response = await client.SendRequestAsync(new IpcRequest
+            {
+                Id = Guid.NewGuid().ToString(),
+                Op = Operations.ReloadAllowlist,
+                Timestamp = DateTime.UtcNow.ToString("O")
+            });
             Console.WriteLine(JsonConvert.SerializeObject(response, Formatting.Indented));
 
             return response.Ok ? ExitSuccess : ExitFailure;
@@ -395,7 +579,9 @@ Exit codes:
             {
                 ["assemblyPath"] = dll!,
                 ["entryType"] = type!,
-                ["timeoutMs"] = timeout
+                ["timeoutMs"] = timeout,
+                ["commandId"] = Environment.GetEnvironmentVariable("REVIT_HARNESS_COMMAND_ID") ?? Guid.NewGuid().ToString("N"),
+                ["taskId"] = Environment.GetEnvironmentVariable("REVIT_HARNESS_TASK_ID") ?? string.Empty
             };
 
             if (!string.IsNullOrEmpty(filter))
@@ -476,7 +662,9 @@ Exit codes:
             {
                 ["assemblyPath"] = dll!,
                 ["commandType"] = type!,
-                ["timeoutMs"] = timeout
+                ["timeoutMs"] = timeout,
+                ["commandId"] = Environment.GetEnvironmentVariable("REVIT_HARNESS_COMMAND_ID") ?? Guid.NewGuid().ToString("N"),
+                ["taskId"] = Environment.GetEnvironmentVariable("REVIT_HARNESS_TASK_ID") ?? string.Empty
             };
 
             if (!string.IsNullOrEmpty(argsJson))

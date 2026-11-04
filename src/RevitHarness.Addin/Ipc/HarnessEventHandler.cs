@@ -4,6 +4,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Newtonsoft.Json;
 using RevitHarness.Addin.Commands;
+using RevitHarness.Addin.DialogHandling;
 using RevitHarness.Contracts;
 #if LOOKUP_SUPPORTED
 using RevitHarness.Lookup;
@@ -48,6 +49,7 @@ namespace RevitHarness.Addin.Ipc
         public void Execute(UIApplication app)
         {
             _uiapp = app;
+            DialogRuntime.SetSession(app.Application?.VersionNumber, app.ActiveUIDocument?.Document?.Title);
 
             // Process all pending requests
             while (_server.TryDequeueRequest(out var item))
@@ -87,10 +89,10 @@ namespace RevitHarness.Addin.Ipc
                     return HandlePing(request, sw);
 
                 case Operations.RunTests:
-                    return HandleRunTests(request, sw);
+                    return WithDialogContext(request, () => HandleRunTests(request, sw));
 
                 case Operations.RunCommand:
-                    return HandleRunCommand(request, sw);
+                    return WithDialogContext(request, () => HandleRunCommand(request, sw));
 
                 case Operations.Shutdown:
                     return HandleShutdown(request, sw);
@@ -105,6 +107,17 @@ namespace RevitHarness.Addin.Ipc
                         $"Unknown operation: {request.Op}",
                         sw.ElapsedMilliseconds);
             }
+        }
+
+        // Tags dialog log records raised while this request runs with the command id (CLI-supplied, else the request id).
+        private static IpcResponse WithDialogContext(IpcRequest request, Func<IpcResponse> run)
+        {
+            var commandId = request.GetPayloadValue<string>("commandId");
+            DialogRuntime.SetCommand(
+                string.IsNullOrEmpty(commandId) ? request.Id : commandId,
+                request.GetPayloadValue<string>("taskId"));
+            try { return run(); }
+            finally { DialogRuntime.SetCommand(null, null); }
         }
 
         private IpcResponse HandlePing(IpcRequest request, Stopwatch sw)

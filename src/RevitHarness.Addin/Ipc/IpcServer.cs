@@ -4,6 +4,7 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.IO.Pipes;
 using System.Text;
 using System.Threading;
@@ -23,13 +24,23 @@ namespace RevitHarness.Addin.Ipc
         private Task? _serverTask;
         private readonly ConcurrentQueue<(IpcRequest Request, Action<IpcResponse> Callback)> _requestQueue;
         private readonly Action<string> _log;
+        private readonly ConcurrentDictionary<Task, byte> _clients = new ConcurrentDictionary<Task, byte>();
+        private readonly string _pipeName;
         private bool _disposed;
 
         public event EventHandler<IpcRequest>? RequestReceived;
 
-        public IpcServer(Action<string> log)
+        /// <summary>
+        /// Answers requests on the pipe thread without the Revit main thread (a modal dialog blocks that thread).
+        /// Returns null to fall through to the normal queue.
+        /// </summary>
+        public Func<IpcRequest, IpcResponse?>? DirectHandler { get; set; }
+
+        // The pipe name is a parameter so tests can run a server next to a real Revit.
+        public IpcServer(Action<string> log, string pipeName = PipeName)
         {
             _log = log;
+            _pipeName = pipeName;
             _requestQueue = new ConcurrentQueue<(IpcRequest, Action<IpcResponse>)>();
         }
 
@@ -53,6 +64,8 @@ namespace RevitHarness.Addin.Ipc
         {
             _cts?.Cancel();
             _serverTask?.Wait(TimeSpan.FromSeconds(5));
+            try { Task.WaitAll(_clients.Keys.ToArray(), TimeSpan.FromSeconds(5)); }
+            catch (AggregateException) { }
             _serverTask = null;
             _cts?.Dispose();
             _cts = null;
@@ -72,6 +85,8 @@ namespace RevitHarness.Addin.Ipc
         /// </summary>
         public int PendingRequestCount => _requestQueue.Count;
 
+        // Each client gets its own task, so a request that waits on a blocked Revit command
+        // does not stop dialog-log or reload-allowlist from connecting.
         private async Task RunServerAsync(CancellationToken ct)
         {
             while (!ct.IsCancellationRequested)
@@ -80,7 +95,7 @@ namespace RevitHarness.Addin.Ipc
                 try
                 {
                     pipeServer = new NamedPipeServerStream(
-                        PipeName,
+                        _pipeName,
                         PipeDirection.InOut,
                         NamedPipeServerStream.MaxAllowedServerInstances,
                         PipeTransmissionMode.Byte,
@@ -90,7 +105,11 @@ namespace RevitHarness.Addin.Ipc
                     await pipeServer.WaitForConnectionAsync(ct);
                     _log("Client connected");
 
-                    await HandleClientAsync(pipeServer, ct);
+                    var connected = pipeServer;
+                    pipeServer = null;
+                    var client = HandleClientAndDisposeAsync(connected, ct);
+                    _clients.TryAdd(client, 0);
+                    _ = client.ContinueWith(t => _clients.TryRemove(t, out _), TaskScheduler.Default);
                 }
                 catch (OperationCanceledException)
                 {
@@ -105,6 +124,12 @@ namespace RevitHarness.Addin.Ipc
                     pipeServer?.Dispose();
                 }
             }
+        }
+
+        private async Task HandleClientAndDisposeAsync(NamedPipeServerStream pipe, CancellationToken ct)
+        {
+            try { await HandleClientAsync(pipe, ct); }
+            finally { pipe.Dispose(); }
         }
 
         private async Task HandleClientAsync(NamedPipeServerStream pipe, CancellationToken ct)
@@ -122,6 +147,18 @@ namespace RevitHarness.Addin.Ipc
 
                     _log($"Received request: op={request.Op}, id={request.Id}");
                     RequestReceived?.Invoke(this, request);
+
+                    IpcResponse? direct;
+                    try { direct = DirectHandler?.Invoke(request); }
+                    catch (Exception ex)
+                    {
+                        direct = IpcResponse.Failure(request.Id, ErrorCodes.InternalError, ex.Message, 0);
+                    }
+                    if (direct != null)
+                    {
+                        await WriteMessageAsync(pipe, direct, ct);
+                        continue;
+                    }
 
                     // Create a completion source for the response
                     var tcs = new TaskCompletionSource<IpcResponse>();

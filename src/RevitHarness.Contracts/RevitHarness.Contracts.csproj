@@ -9,7 +9,6 @@
     <Description>Shared interfaces for RevitHarness - ITestEntryPoint and IHarnessCommand</Description>
     <PackageTags>revit;testing;harness;contracts</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 

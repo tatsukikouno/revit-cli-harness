@@ -21,12 +21,21 @@
     <!-- Revit loads this DLL directly (not via the .NET host), so package dependencies must be
          physically copied next to it rather than resolved from deps.json/the NuGet cache -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <!-- lookupElement is only available on the net48 (Revit 2024) build; see HarnessEventHandler.cs -->
   <PropertyGroup Condition="'$(RevitYearSuffix)'=='R24'">
     <DefineConstants>$(DefineConstants);LOOKUP_SUPPORTED</DefineConstants>
   </PropertyGroup>
+
+  <!-- RevitWindowCapture needs System.Drawing; on net8.0-windows it ships with the Windows Forms reference assemblies -->
+  <PropertyGroup Condition="'$(RevitYearSuffix)'!='R24'">
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(RevitYearSuffix)'=='R24'">
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
 
   <!-- net8.0-windows resolves WPF assemblies automatically via UseWPF; net48 needs them listed explicitly -->
   <ItemGroup Condition="'$(RevitYearSuffix)'=='R24'">
@@ -37,6 +46,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\RevitHarness.Dialogs.Shared\RevitHarness.Dialogs.Shared.csproj" />
     <ProjectReference Include="..\RevitHarness.Contracts\RevitHarness.Contracts.csproj" />
     <ProjectReference Include="..\RevitHarness.Lookup\RevitHarness.Lookup.csproj" Condition="'$(RevitYearSuffix)'=='R24'" />
   </ItemGroup>

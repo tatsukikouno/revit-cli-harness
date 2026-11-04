@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "known-addin-contoso-prefix-load-once",
+      "enabled": true,
+      "target": "watcher",
+      "match": {
+        "title": { "value": "Security - Unsigned Add-in", "mode": "equals", "ignoreCase": true },
+        "automationId": { "value": "TaskDialog", "mode": "equals", "ignoreCase": true },
+        "buttons": ["Always Load", "Load Once", "Do Not Load"],
+        "addIn": "Contoso.*"
+      },
+      "action": { "buttonName": "Load Once", "buttonAutomationId": "CommandButton_1002" },
+      "note": "Add-ins whose name starts with Contoso. only (trailing * is a prefix match). Adjust title and button labels to your Revit display language. Any other add-in stays pending for an external decision.",
+      "noLearn": false,
+      "createdBy": "manual"
+    },
+    {
+      "id": "sample-test-target-dialog",
+      "enabled": true,
+      "target": "watcher",
+      "match": {
+        "title": { "value": "SampleAddin - Confirm", "mode": "equals", "ignoreCase": true }
+      },
+      "action": { "buttonName": "OK", "buttonAutomationId": "CommandButton_1" },
+      "note": "noLearn marks a dialog a tester is deliberately exercising: it is never auto-pressed and never saved as a learned rule, it stays pending for an external decision.",
+      "noLearn": true,
+      "createdBy": "manual"
+    }
+  ]
+}

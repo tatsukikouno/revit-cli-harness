@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Revit-free add-in logic, compiled here so it can be tested without Revit. -->
+    <Compile Include="..\..\src\RevitHarness.Addin\DialogHandling\DialogInfoBuilder.cs" Link="Addin\DialogInfoBuilder.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\DialogHandling\DialogRuntime.cs" Link="Addin\DialogRuntime.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\DialogHandling\DialogLogReader.cs" Link="Addin\DialogLogReader.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\IpcServer.cs" Link="Addin\IpcServer.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\IpcMessages.cs" Link="Addin\IpcMessages.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\RevitHarness.Cli\Installation\*.cs" Link="Cli\%(Filename)%(Extension)" />
+    <!-- Stand-ins for the add-in files the CLI embeds, read by the linked RevitInstaller. -->
+    <EmbeddedResource Include="TestData\RevitHarness.Addin.dll" LogicalName="2024/RevitHarness.Addin.dll" />
+    <EmbeddedResource Include="TestData\RevitHarness.Contracts.dll" LogicalName="2024/RevitHarness.Contracts.dll" />
+    <EmbeddedResource Include="TestData\RevitHarness.Addin.2025.dll" LogicalName="2025/RevitHarness.Addin.dll" />
+    <EmbeddedResource Include="TestData\RevitHarness.addin" LogicalName="RevitHarness.addin" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\RevitHarness.Dialogs.Shared\RevitHarness.Dialogs.Shared.csproj" />
+  </ItemGroup>
+</Project>

@@ -66,10 +66,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Content Include="skills\**\*" Link="skills\%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+             Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(WatcherOutput)**\*" Exclude="$(WatcherOutput)**\*.pdb"
              Link="watcher\%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
              Condition="Exists('$(WatcherOutput)RevitHarness.DialogWatcher.exe')" />
   </ItemGroup>
   <Target Name="RequireWatcherForPack" BeforeTargets="GenerateNuspec"

@@ -13,23 +13,27 @@ description: |
 ## Install
 
 ```bash
-revit-harness install --revit-version <year> [--force]
+revit-harness install --revit-version <year> [--skills-dir <path>]
 ```
 
 - `--revit-version`: Revit version year (e.g., 2024) - required
-- `--force`: Force reinstall if already installed
+- `--skills-dir`: where to install the SKILLs (default `%USERPROFILE%\.claude\skills`)
+
+Re-running install replaces everything it installed. A running dialog watcher is stopped first.
 
 Example:
 ```bash
 revit-harness install --revit-version 2024
-revit-harness install --revit-version 2024 --force
+revit-harness install --revit-version 2024 --skills-dir D:\my-skills
 ```
 
 ## Uninstall
 
 ```bash
-revit-harness uninstall --revit-version <year>
+revit-harness uninstall --revit-version <year> [--skills-dir <path>]
 ```
+
+Removes the add-in for that version. The watcher and SKILLs are shared, so they are removed with the last installed version (pass the same `--skills-dir` as at install). The dialogs data folder (allowlist, logs, pending) is kept.
 
 Example:
 ```bash
@@ -46,7 +50,6 @@ Shows installation status. If `--revit-version` is omitted, shows all detected v
 
 ## Installation Paths
 
-Files are installed to:
 ```
 %APPDATA%\Autodesk\Revit\Addins\<year>\
 ├── RevitHarness.addin
@@ -54,8 +57,12 @@ Files are installed to:
     ├── RevitHarness.Addin.dll
     ├── RevitHarness.Contracts.dll
     └── Newtonsoft.Json.dll
+%LOCALAPPDATA%\RevitHarness\
+├── watcher\                 dialog watcher (see revit-harness-dialogs)
+└── dialogs\                 allowlist, logs, pending (never removed by uninstall)
+%USERPROFILE%\.claude\skills\<skill>\SKILL.md    or <--skills-dir>\<skill>\SKILL.md
 ```
 
 ## After Installation
 
-Restart Revit to load the add-in. The IPC server starts automatically when Revit launches.
+Restart Revit to load the add-in. The IPC server starts automatically when Revit launches. Before launching Revit, start the dialog watcher (`revit-harness dialog-watcher start`, see the `revit-harness-dialogs` skill); it is never started automatically.

@@ -25,6 +25,7 @@ namespace RevitHarness.Addin.Ipc
         public Assembly Assembly => LoadedAssembly ?? throw new ObjectDisposedException(nameof(Generation));
         public string ShadowPath { get; }
         public abstract WeakReference Lifetime { get; }
+        public abstract IReadOnlyCollection<Assembly> Assemblies { get; }
 
         protected Generation(string shadowPath) { ShadowPath = shadowPath; }
 
@@ -49,23 +50,24 @@ namespace RevitHarness.Addin.Ipc
             {
                 foreach (var assembly in hostAssemblies)
                     hosts[assembly.GetName().Name!] = assembly;
-                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    var name = assembly.GetName().Name!;
-                    if (!EverOwned.ContainsKey(name) && !hosts.ContainsKey(name)) hosts[name] = assembly;
-                }
+                var mainName = AssemblyName.GetAssemblyName(shadowAssemblyPath).Name!;
+                var loaded = AppDomain.CurrentDomain.GetAssemblies();
                 foreach (var path in Directory.GetFiles(Path.GetDirectoryName(shadowAssemblyPath)!, "*.dll"))
                 {
-                    try
-                    {
-                        var name = AssemblyName.GetAssemblyName(path).Name!;
-                        if (!hosts.ContainsKey(name)) owned[name] = path;
-                    }
-                    catch (BadImageFormatException) { log($"Skipping native DLL: {path}"); }
+                    AssemblyName shadowName;
+                    try { shadowName = AssemblyName.GetAssemblyName(path); }
+                    catch (BadImageFormatException) { log($"Skipping native DLL: {path}"); continue; }
+
+                    var name = shadowName.Name!;
+                    if (hosts.ContainsKey(name)) continue;
+                    // A copy another add-in already loaded is shared only when it is at least as new as the one shipped with the target.
+                    var host = name == mainName || EverOwned.ContainsKey(name)
+                        ? null
+                        : loaded.FirstOrDefault(a => string.Equals(a.GetName().Name, name, StringComparison.OrdinalIgnoreCase)
+                            && a.GetName().Version >= shadowName.Version);
+                    if (host != null) hosts[name] = host;
+                    else owned[name] = path;
                 }
-                var mainName = AssemblyName.GetAssemblyName(shadowAssemblyPath).Name!;
-                if (!owned.ContainsKey(mainName))
-                    throw new InvalidOperationException($"Target assembly is already a host assembly: {mainName}");
                 foreach (var name in owned.Keys) EverOwned.TryAdd(name, 0);
             }
 #if NET48
@@ -100,6 +102,7 @@ namespace RevitHarness.Addin.Ipc
             private readonly Dictionary<string, Assembly> _hosts;
             private ResolveEventHandler? _resolver;
             public override WeakReference Lifetime { get; }
+            public override IReadOnlyCollection<Assembly> Assemblies => _assemblies.Values;
 
             public ByteGeneration(string path, Dictionary<string, string> owned, Dictionary<string, Assembly> hosts) : base(path)
             {
@@ -144,6 +147,7 @@ namespace RevitHarness.Addin.Ipc
         {
             private GenerationContext? _context;
             public override WeakReference Lifetime { get; }
+            public override IReadOnlyCollection<Assembly> Assemblies => _context?.Assemblies.ToArray() ?? Array.Empty<Assembly>();
 
             public CollectibleGeneration(string path, Dictionary<string, string> owned, Dictionary<string, Assembly> hosts) : base(path)
             {

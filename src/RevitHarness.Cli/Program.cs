@@ -715,21 +715,25 @@ Exit codes:
             return response.Ok ? ExitSuccess : ExitFailure;
         }
 
-        private static (string? Value, int Timeout) ReadOption(string[] args, string name, int timeout)
+        private static (string? Dll, string? Type, int Timeout) ReadTargetOptions(string[] args)
         {
-            string? value = null;
+            string? dll = null, type = null;
+            var timeout = 300000;
             for (int i = 1; i < args.Length; i++)
             {
-                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length) value = args[++i];
-                else if (string.Equals(args[i], "--timeout", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length && int.TryParse(args[++i], out var t)) timeout = t;
+                switch (args[i].ToLowerInvariant())
+                {
+                    case "--dll": if (i + 1 < args.Length) dll = args[++i]; break;
+                    case "--type": if (i + 1 < args.Length) type = args[++i]; break;
+                    case "--timeout": if (i + 1 < args.Length && int.TryParse(args[++i], out var t)) timeout = t; break;
+                }
             }
-            return (value, timeout);
+            return (dll, type, timeout);
         }
 
         private static async Task<int> RunReloadAsync(string[] args)
         {
-            var (dll, timeout) = ReadOption(args, "--dll", 300000);
-            var (type, _) = ReadOption(args, "--type", timeout);
+            var (dll, type, timeout) = ReadTargetOptions(args);
             if (string.IsNullOrEmpty(dll)) { Console.Error.WriteLine("Error: --dll is required"); return ExitFailure; }
             if (string.IsNullOrEmpty(type)) { Console.Error.WriteLine("Error: --type is required"); return ExitFailure; }
             return await SendTargetRequestAsync(Operations.Reload, timeout, new Dictionary<string, object>
@@ -741,12 +745,14 @@ Exit codes:
 
         private static async Task<int> RunSimpleTargetAsync(string[] args, string op)
         {
-            var (_, timeout) = ReadOption(args, "--timeout", 300000);
+            var (_, _, timeout) = ReadTargetOptions(args);
             return await SendTargetRequestAsync(op, timeout, null);
         }
 
         private static async Task<int> SendTargetRequestAsync(string op, int timeout, Dictionary<string, object>? payload)
         {
+            payload ??= new Dictionary<string, object>();
+            payload["timeoutMs"] = timeout;
             using var client = new IpcClient();
             await client.ConnectAsync();
             var request = new IpcRequest

@@ -90,10 +90,10 @@ namespace RevitHarness.Addin.Ipc
                     return WithDialogContext(request, () => HandleRunCommand(request, sw));
 
                 case Operations.Reload:
-                    return HandleReload(request, sw);
+                    return WithDialogContext(request, () => HandleReload(request, sw));
 
                 case Operations.Unload:
-                    return HandleTargetOp(request, sw, host => host.Unload());
+                    return WithDialogContext(request, () => HandleTargetOp(request, sw, host => host.Unload()));
 
                 case Operations.TargetStatus:
                     return HandleTargetOp(request, sw, host => host.Status());

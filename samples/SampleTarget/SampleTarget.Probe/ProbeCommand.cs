@@ -22,7 +22,7 @@ namespace SampleTarget.Probe
                 case "state":
                     var lines = File.Exists(path) ? File.ReadAllLines(path).Where(l => !string.IsNullOrWhiteSpace(l))
                         .Select(JObject.Parse).ToArray() : Array.Empty<JObject>();
-                    var id = new UpdaterId(new AddInId(new Guid("4dabf61b-74b3-4a77-bab5-98f56ac2cc30")),
+                    var id = new UpdaterId(new AddInId(new Guid("4738EE1F-5DFA-4682-AB21-CDFC58CE299E")),
                         new Guid("57b074d0-f416-48e8-8c77-4aefb091ee01"));
                     return JsonConvert.SerializeObject(new { lines, updaterRegistered = UpdaterRegistry.IsUpdaterRegistered(id) });
                 case "clear-log":
@@ -51,9 +51,27 @@ namespace SampleTarget.Probe
                 case "ribbon":
                     return JsonConvert.SerializeObject(new { panels = uiapp.GetRibbonPanels("SampleTarget")
                         .Select(p => new { name = p.Name, items = p.GetItems().Select(i => new { name = i.Name, text = i.ItemText }) }) });
+                case "alc":
+                    return JsonConvert.SerializeObject(new
+                    {
+                        runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+                        assemblies = AppDomain.CurrentDomain.GetAssemblies()
+                            .Where(a => new[] { "RevitHarness.Addin", "RevitHarness.Contracts", "RevitAPI", "RevitAPIUI", "Newtonsoft.Json" }.Contains(a.GetName().Name))
+                            .Select(a => new { name = a.GetName().Name, context = ContextOf(a) })
+                    });
                 default:
-                    throw new ArgumentException("op must be state, clear-log, edit, click, or ribbon.");
+                    throw new ArgumentException("op must be state, clear-log, edit, click, ribbon, or alc.");
             }
+        }
+
+        private static string ContextOf(System.Reflection.Assembly assembly)
+        {
+#if NET48
+            return "AppDomain";
+#else
+            var context = System.Runtime.Loader.AssemblyLoadContext.GetLoadContext(assembly);
+            return context == null ? "none" : $"{context.Name} collectible={context.IsCollectible}";
+#endif
         }
     }
 }

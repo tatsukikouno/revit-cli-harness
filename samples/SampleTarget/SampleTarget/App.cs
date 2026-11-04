@@ -28,7 +28,7 @@ namespace SampleTarget
             var panel = application.GetRibbonPanels("SampleTarget").FirstOrDefault(p => p.Name == "Sample")
                 ?? application.CreateRibbonPanel("SampleTarget", "Sample");
             TargetRibbon.AddPushButton(panel, "Hello", $"Hello {TargetLog.Tag}", typeof(HelloCommand).FullName!);
-            var updater = new SampleUpdater();
+            var updater = new SampleUpdater(application.ActiveAddInId);
             UpdaterRegistry.RegisterUpdater(updater, true);
             UpdaterRegistry.AddTrigger(updater.GetUpdaterId(), new ElementClassFilter(typeof(Level)),
                 Element.GetChangeTypeElementAddition());
@@ -40,7 +40,7 @@ namespace SampleTarget
 
         public Result OnShutdown(UIControlledApplication application)
         {
-            try { UpdaterRegistry.UnregisterUpdater(SampleUpdater.Id); }
+            try { UpdaterRegistry.UnregisterUpdater(SampleUpdater.IdFor(application.ActiveAddInId)); }
             finally
             {
                 if (_documentChanged != null)
@@ -56,13 +56,16 @@ namespace SampleTarget
 
     public sealed class SampleUpdater : IUpdater
     {
-        public static readonly UpdaterId Id = new UpdaterId(
-            new AddInId(new Guid("4dabf61b-74b3-4a77-bab5-98f56ac2cc30")),
-            new Guid("57b074d0-f416-48e8-8c77-4aefb091ee01"));
+        private readonly UpdaterId _id;
+
+        public SampleUpdater(AddInId owner) { _id = IdFor(owner); }
+
+        public static UpdaterId IdFor(AddInId owner) => new UpdaterId(owner, new Guid("57b074d0-f416-48e8-8c77-4aefb091ee01"));
+
         public void Execute(UpdaterData data) => TargetLog.Write("updater");
         public string GetAdditionalInformation() => "Logs Level additions for hot reload verification.";
-        public ChangePriority GetChangePriority() => ChangePriority.LevelsGrids;
-        public UpdaterId GetUpdaterId() => Id;
+        public ChangePriority GetChangePriority() => ChangePriority.Annotations;
+        public UpdaterId GetUpdaterId() => _id;
         public string GetUpdaterName() => "SampleTarget Level logger";
     }
 

@@ -96,6 +96,9 @@ namespace RevitHarness.Addin.Ipc
 
         public TargetState State => _current == null ? TargetState.Unloaded : TargetState.Started;
 
+        public IReadOnlyCollection<Assembly> ResidentAssemblies =>
+            _current?.Generation.Assemblies ?? (IReadOnlyCollection<Assembly>)Array.Empty<Assembly>();
+
         public Assembly? TryGetResidentAssembly(string dllPath)
         {
             var current = _current;
@@ -140,8 +143,9 @@ namespace RevitHarness.Addin.Ipc
             try
             {
                 app = Create(generation, typeName);
-                if (app.OnStartup(uic) == Result.Failed)
-                    throw new InvalidOperationException($"{typeName}.OnStartup returned Failed");
+                var started = app.OnStartup(uic);
+                if (started != Result.Succeeded)
+                    throw new InvalidOperationException($"{typeName}.OnStartup returned {started}");
             }
             catch
             {
@@ -218,8 +222,12 @@ namespace RevitHarness.Addin.Ipc
                 return Result.Failed;
             }
 
-            var type = current.Generation.Assembly.GetType(slot.CommandType)
-                ?? throw new InvalidOperationException($"Type not found in generation {current.Number}: {slot.CommandType}");
+            var type = current.Generation.Assembly.GetType(slot.CommandType);
+            if (type == null || !typeof(IExternalCommand).IsAssignableFrom(type))
+            {
+                message = $"{slot.CommandType} is not an IExternalCommand of generation {current.Number}.";
+                return Result.Failed;
+            }
             var command = (IExternalCommand)Activator.CreateInstance(type)!;
             return command.Execute(commandData, ref message, elements);
         }
@@ -230,14 +238,19 @@ namespace RevitHarness.Addin.Ipc
             if (index >= 0)
             {
                 _slots[index]!.CommandType = commandType;
-                var existing = panel.GetItems().OfType<PushButton>().First(b => b.Name == name);
-                existing.ItemText = text;
-                return existing;
+                var existing = panel.GetItems().OfType<PushButton>().FirstOrDefault(b => b.Name == name);
+                if (existing != null)
+                {
+                    existing.ItemText = text;
+                    return existing;
+                }
             }
-
-            index = Array.FindIndex(_slots, s => s == null);
-            if (index < 0)
-                throw new InvalidOperationException($"At most {SlotCount} hot reloaded ribbon buttons are supported.");
+            else
+            {
+                index = Array.FindIndex(_slots, s => s == null);
+                if (index < 0)
+                    throw new InvalidOperationException($"At most {SlotCount} hot reloaded ribbon buttons are supported.");
+            }
 
             var data = new PushButtonData(name, text, typeof(TargetHost).Assembly.Location, typeof(TargetSlot0).Namespace + ".TargetSlot" + index);
             var button = (PushButton)panel.AddItem(data);
@@ -305,7 +318,8 @@ namespace RevitHarness.Addin.Ipc
         {
             var resident = TargetHost.Instance?.TryGetResidentAssembly(dllPath);
             if (resident != null) return new AssemblyLease(resident, null);
-            var generation = Generation.Load(shadow.CopyToShadow(dllPath), TargetHost.HostAssemblies, log);
+            var hosts = TargetHost.HostAssemblies.Concat(TargetHost.Instance?.ResidentAssemblies ?? Array.Empty<Assembly>());
+            var generation = Generation.Load(shadow.CopyToShadow(dllPath), hosts, log);
             return new AssemblyLease(generation.Assembly, generation);
         }
 

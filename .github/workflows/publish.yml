@@ -70,7 +70,7 @@ jobs:
       # RevitHarness.Cli builds every Revit year's Addin and the dialog watcher itself, so packing needs no
       # separate build step.
       - name: Pack Contracts
-        run: dotnet pack src/RevitHarness.Contracts -c Release -p:Version=${{ needs.resolve-version.outputs.version }} -p:Platform=x64 -o ./nupkgs
+        run: dotnet pack src/RevitHarness.Contracts -c Release -p:Version=${{ needs.resolve-version.outputs.version }} -o ./nupkgs
 
       - name: Pack CLI
         run: dotnet pack src/RevitHarness.Cli -c Release -p:Version=${{ needs.resolve-version.outputs.version }} -o ./nupkgs

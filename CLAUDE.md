@@ -24,7 +24,7 @@ A Revit 2024/2025/2026 harness add-in that enables external CLI/agent execution 
 ## Build Commands
 
 ```bash
-# Build the Addin for a specific Revit year (must be built before the CLI, once per supported year).
+# Build the Addin for a specific Revit year (only needed to build one year on its own; the CLI builds all years itself).
 # -p:Platform=x64 is required for a direct project build to land in bin\x64\... — without it, the
 # output path omits the x64 segment and the CLI's embedded-resource glob won't find it.
 dotnet build src/RevitHarness.Addin -c "Debug R24" -p:Platform=x64    # Revit 2024 (net48)
@@ -45,7 +45,7 @@ dotnet pack src/RevitHarness.Contracts -c Release
 dotnet pack src/RevitHarness.Cli -c Release
 ```
 
-**Important**: Build the Addin project for all three configurations (`Debug R24`/`Debug R25`/`Debug R26`, or the `Release` equivalents) as **separate `dotnet build` invocations, before** building the CLI project or the solution. The CLI embeds each year's Addin build output as a version-prefixed resource (see `RevitHarness.Cli.csproj` `EmbeddedResource` items with `Condition="Exists(...)"`), and `RevitInstaller` selects the matching set at install time based on `--revit-version`. That `Exists(...)` condition is evaluated once, up front, and is *not* re-checked after a same-invocation dependency build finishes — so even a single `dotnet build revit-cli-harness.sln` run will silently embed nothing for whichever year's Addin output doesn't already exist on disk before that invocation starts (this is a pre-existing characteristic of the embedding mechanism, not specific to R25/R26). Always build R24/R25/R26 as their own prior commands first. Build `src/RevitHarness.DialogWatcher` (same configuration, `-p:Platform=x64`) before the CLI too; `dotnet pack` fails when its output is missing, and pack the CLI with `--no-build` after `dotnet build src/RevitHarness.Cli -c Release`. `lookupElement` is only available in the R24 (Revit 2024, net48) build — R25/R26 builds return a `NOT_SUPPORTED` error for that operation because the `RevitHarness.Lookup` dependency (`lib/LookupEngine/*.dll`) is net48-only.
+**Important**: `RevitHarness.Cli` builds the Addin for `R24`/`R25`/`R26` and `RevitHarness.DialogWatcher` itself (target `BundleAddinAndWatcher` in `RevitHarness.Cli.csproj`) and embeds the results, so `dotnet build src/RevitHarness.Cli` and a plain `dotnet pack src/RevitHarness.Cli -c Release` need no earlier build step. Each year restores into its own `obj\R24|R25|R26` directory (`src/RevitHarness.Addin/Directory.Build.props`), and the target removes the inherited `TargetFramework` global property: `dotnet pack` re-enters the CLI project with `TargetFramework=net8.0`, which otherwise overrides the Addin's per-year TFM and fails with NETSDK1136. `lookupElement` is only available in the R24 (Revit 2024, net48) build — R25/R26 builds return a `NOT_SUPPORTED` error for that operation because the `RevitHarness.Lookup` dependency (`lib/LookupEngine/*.dll`) is net48-only.
 
 ## Project Structure
 

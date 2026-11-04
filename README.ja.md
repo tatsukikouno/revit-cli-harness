@@ -3,7 +3,7 @@
 [![NuGet RevitHarness.Cli](https://img.shields.io/nuget/v/RevitHarness.Cli.svg?label=RevitHarness.Cli)](https://www.nuget.org/packages/RevitHarness.Cli/)
 [![NuGet RevitHarness.Contracts](https://img.shields.io/nuget/v/RevitHarness.Contracts.svg?label=RevitHarness.Contracts)](https://www.nuget.org/packages/RevitHarness.Contracts/)
 
-Revit 2024 用のハーネスアドイン。実行中の Revit インスタンスに対して、CLI やエージェントからテスト実行・コマンド実行・要素インスペクションを行える。DLL ホットスワップにより Revit 再起動なしでコードを更新可能。
+Revit 2024 / 2025 / 2026 / 2027 用のハーネスアドイン。実行中の Revit インスタンスに対して、CLI やエージェントからテスト実行・コマンド実行・要素インスペクションを行える。DLL ホットスワップにより Revit 再起動なしでコードを更新可能。
 
 [English README](README.md)
 
@@ -17,6 +17,8 @@ Revit 2024 用のハーネスアドイン。実行中の Revit インスタン�
 
 ## インストール
 
+
+.NET 10 SDK またはランタイムが必要。
 ### CLI ツール
 
 ```bash
@@ -27,7 +29,7 @@ dotnet tool install -g RevitHarness.Cli
 
 ```bash
 # インストール: アドイン、ダイアログウォッチャー、SKILL を展開（再実行で上書き）
-revit-harness install --revit-version 2024
+revit-harness install --revit-version 2024   # 2024 / 2025 / 2026 / 2027
 revit-harness install --revit-version 2024 --skills-dir D:\my-skills   # SKILL の展開先を変更
 
 # 状態確認
@@ -79,7 +81,7 @@ revit-harness run-tests --dll "path/to/tests.dll" --type "Company.Tests.EntryPoi
 revit-harness run-command --dll "path/to/command.dll" --type "Company.MyCommand" [--args '{"key":"value"}'] [--timeout 300000]
 ```
 
-`IHarnessCommand` または `IExternalCommand` を実装した型を実行。
+`IHarnessCommand` または `IExternalCommand` を実装した型を実行。`IExternalCommand` には実物の `ExternalCommandData` が渡される（`commandData.Application` は実行中の `UIApplication`、`View` はアクティブドキュメントのアクティブビュー。ドキュメントが無ければ `null`）。`samples/SampleCommands` を参照。
 
 ### post-command — 登録済み Revit コマンドの実行
 

@@ -259,4 +259,6 @@ revit-cli-harness/
 
 ## ライセンス
 
-MIT
+MIT（[LICENSE](LICENSE) 参照）。
+
+要素インスペクション機能（`lookup`）は [RevitLookup](https://github.com/lookup-foundation/RevitLookup) の `LookupEngine` / `LookupEngine.Abstractions`（MIT、Copyright (c) Lookup Foundation and Contributors）を無改変のバイナリとして同梱しています。詳細は [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) を参照してください。CLI パッケージとインストールされたアドインフォルダにも含まれます。

@@ -82,7 +82,10 @@ src/
     └── Installation/
         └── RevitInstaller.cs        # Extracts embedded resources to Revit addins folder
 
-lib/LookupEngine/                    # External library used by RevitHarness.Lookup, vendored per-TFM (net48/, net8.0-windows/)
+lib/LookupEngine/                    # Vendored per-TFM (net48/, net8.0-windows/) RevitLookup LookupEngine (MIT, Copyright (c) Lookup Foundation and Contributors).
+                                     # Upstream: github.com/lookup-foundation/RevitLookup source/LookupEngine, commit 7a9e965.
+                                     # net48 = 2024.3.1, net8.0-windows = 2026.1.1; extracted from an installed RevitLookup add-in.
+                                     # Attribution lives in THIRD-PARTY-NOTICES.md: update it when replacing these DLLs.
 ```
 
 ## Development Notes

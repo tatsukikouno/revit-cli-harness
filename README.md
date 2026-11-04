@@ -259,4 +259,6 @@ Old directories are automatically cleaned up (max 10 generations, deleted after 
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
+
+The element inspection feature (`lookup`) uses the `LookupEngine` and `LookupEngine.Abstractions` libraries from [RevitLookup](https://github.com/lookup-foundation/RevitLookup) (MIT, Copyright (c) Lookup Foundation and Contributors). They are redistributed unmodified as vendored binaries. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); the CLI package and the installed add-in folder include it.

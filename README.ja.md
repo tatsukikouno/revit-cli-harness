@@ -17,9 +17,9 @@ Revit 2024 / 2025 / 2026 / 2027 用のハーネスアドイン。実行中の Re
 
 ## インストール
 
+### CLI ツール
 
 .NET 10 SDK またはランタイムが必要。
-### CLI ツール
 
 ```bash
 dotnet tool install -g RevitHarness.Cli

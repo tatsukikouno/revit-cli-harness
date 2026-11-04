@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using FlaUI.Core.AutomationElements;
@@ -70,7 +71,7 @@ namespace RevitHarness.DialogWatcher
         // Only handles and ids that are still present stay remembered.
         private void PruneClosedWindows(List<Candidate> candidates)
         {
-            var hwnds = new HashSet<long>(candidates.Select(c => c.Element.Properties.NativeWindowHandle.ValueOrDefault.ToInt64()));
+            var hwnds = new HashSet<long>(candidates.Select(c => c.Hwnd));
             foreach (var gone in handled.Keys.Where(h => !hwnds.Contains(h)).ToList()) handled.Remove(gone);
         }
 
@@ -93,8 +94,8 @@ namespace RevitHarness.DialogWatcher
         private void ProcessPendingEntry(PendingDialog entry, List<Candidate> candidates)
         {
             var window = entry.Hwnd == null ? null : candidates.FirstOrDefault(c =>
-                c.Pid == entry.Pid && c.Element.Properties.NativeWindowHandle.ValueOrDefault.ToInt64() == entry.Hwnd &&
-                c.Element.Name == entry.Title);
+                c.Pid == entry.Pid && c.Hwnd == entry.Hwnd &&
+                c.Title == entry.Title);
             if (entry.Status == PendingStatus.Applying)
             {
                 if (DateTimeOffset.UtcNow - entry.UpdatedAt > ApplyingLifetime)
@@ -159,6 +160,8 @@ namespace RevitHarness.DialogWatcher
             public AutomationElement Element = null!;
             public string ProcessName = string.Empty;
             public int Pid;
+            public long Hwnd;
+            public string Title = string.Empty;
         }
 
         private List<Candidate>? FindCandidates()
@@ -186,14 +189,27 @@ namespace RevitHarness.DialogWatcher
                 if (!isReporter && !isRevit && !options.ExtraPids.Contains(pid)) continue;
                 if (isRevit && IsMainWindow(w, pid))
                 {
-                    foreach (var owned in OwnedWindows(w))
-                        result.Add(new Candidate { Element = owned, ProcessName = name, Pid = pid });
+                    foreach (var owned in OwnedWindows(w)) AddCandidate(result, owned, name, pid);
                     continue;
                 }
-                result.Add(new Candidate { Element = w, ProcessName = name, Pid = pid });
+                AddCandidate(result, w, name, pid);
             }
             foreach (var gone in processNames.Keys.Where(p => !seenPids.Contains(p)).ToList()) processNames.Remove(gone);
             return result;
+        }
+
+        // A window can vanish between enumeration and the property read; such a window is not a candidate.
+        private static void AddCandidate(List<Candidate> result, AutomationElement element, string processName, int pid)
+        {
+            long hwnd;
+            string title;
+            try
+            {
+                hwnd = element.Properties.NativeWindowHandle.ValueOrDefault.ToInt64();
+                title = element.Name;
+            }
+            catch (COMException) { return; }
+            result.Add(new Candidate { Element = element, ProcessName = processName, Pid = pid, Hwnd = hwnd, Title = title });
         }
 
         private static AutomationElement[] OwnedWindows(AutomationElement main) =>
@@ -291,9 +307,7 @@ namespace RevitHarness.DialogWatcher
             }
             foreach (var c in (FindCandidates() ?? new List<Candidate>()).Where(c => c.Pid == pid))
             {
-                var h = c.Element.Properties.NativeWindowHandle.ValueOrDefault.ToInt64();
-                var t = c.Element.Name;
-                if (h != hwnd || (!closed && t != title)) { next = t; break; }
+                if (c.Hwnd != hwnd || (!closed && c.Title != title)) { next = c.Title; break; }
             }
             decider.LogOutcome(decision, closed, next);
         }

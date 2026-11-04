@@ -9,7 +9,7 @@ namespace RevitHarness.Addin
     /// <summary>
     /// Revit 2024 (net48) has no binding redirects for add-ins, so a harness dependency compiled against 8.0.0.0 fails to load
     /// when the bundled file is 8.0.0.6. Loads the same-named file from the add-in folder, but only for requests made by
-    /// harness assemblies or their bundled dependencies and only when the bundled file is not older than the request.
+    /// harness assemblies, their bundled dependencies or a bind started directly by harness code, and only when the bundled file is not older than the request.
     /// Revit 2025 and later (net8.0) bind these from the runtime and the add-in folder without help.
     /// </summary>
     internal static class BundledDependencyResolver
@@ -44,9 +44,11 @@ namespace RevitHarness.Addin
             return Assembly.LoadFrom(path);
         }
 
+        // Revit 2024 reports no requesting assembly for a static reference that fails to bind (measured for System.Text.Json),
+        // so a request without a requester counts as the harness's when a harness assembly is on the calling stack.
         private static bool IsHarnessRequester(Assembly? requester)
         {
-            if (requester == null) return false;
+            if (requester == null) return HarnessOnStack();
             var name = requester.GetName().Name ?? string.Empty;
             if (name.StartsWith("RevitHarness.", StringComparison.Ordinal)) return true;
             try
@@ -56,6 +58,21 @@ namespace RevitHarness.Addin
                     string.Equals(Path.GetDirectoryName(location), Directory, StringComparison.OrdinalIgnoreCase);
             }
             catch (NotSupportedException) { return false; }
+        }
+
+        // The bind belongs to the harness when the nearest calling frame outside the resolver and the framework is harness code.
+        private static bool HarnessOnStack()
+        {
+            foreach (var frame in new System.Diagnostics.StackTrace(false).GetFrames())
+            {
+                var type = frame.GetMethod()?.DeclaringType;
+                if (type == null || type == typeof(BundledDependencyResolver)) continue;
+                var name = type.Assembly.GetName().Name ?? string.Empty;
+                if (name.StartsWith("RevitHarness.", StringComparison.Ordinal)) return true;
+                if (name == "mscorlib" || name.StartsWith("System.", StringComparison.Ordinal)) continue;
+                return false;
+            }
+            return false;
         }
     }
 }

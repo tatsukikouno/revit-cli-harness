@@ -15,7 +15,8 @@ namespace SampleCommands
         {
             var uiapp = commandData.Application;
             var doc = uiapp.ActiveUIDocument?.Document;
-            message = $"Revit {uiapp.Application.VersionNumber}; active document: {doc?.Title ?? "(none)"}";
+            var view = commandData.View;
+            message = $"Revit {uiapp.Application.VersionNumber}; active document: {doc?.Title ?? "(none)"}; active view: {view?.Name ?? "(none)"} (element id {view?.Id.ToString() ?? "-"})";
             return Result.Succeeded;
         }
     }

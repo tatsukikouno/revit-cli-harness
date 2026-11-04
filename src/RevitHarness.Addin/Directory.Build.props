@@ -6,6 +6,7 @@
   <PropertyGroup>
     <BaseIntermediateOutputPath Condition="$(Configuration.EndsWith('R25'))">obj\R25\</BaseIntermediateOutputPath>
     <BaseIntermediateOutputPath Condition="$(Configuration.EndsWith('R26'))">obj\R26\</BaseIntermediateOutputPath>
+    <BaseIntermediateOutputPath Condition="$(Configuration.EndsWith('R27'))">obj\R27\</BaseIntermediateOutputPath>
     <BaseIntermediateOutputPath Condition="'$(BaseIntermediateOutputPath)' == ''">obj\R24\</BaseIntermediateOutputPath>
   </PropertyGroup>
 </Project>

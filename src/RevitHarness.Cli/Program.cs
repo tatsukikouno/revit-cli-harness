@@ -59,6 +59,15 @@ namespace RevitHarness.Cli
                     case "run-command":
                         return await RunCommandAsync(args);
 
+                    case "reload":
+                        return await RunReloadAsync(args);
+
+                    case "unload":
+                        return await RunSimpleTargetAsync(args, Operations.Unload);
+
+                    case "target-status":
+                        return await RunSimpleTargetAsync(args, Operations.TargetStatus);
+
                     case "shutdown":
                         return await RunShutdownAsync();
 
@@ -165,6 +174,14 @@ IPC Commands:
     --dll <path>                Path to the command DLL (required)
     --type <typename>           Command type name (required)
     --args <json>               Arguments as JSON (optional, e.g., '{""key"":""value""}')
+    --timeout <ms>              Timeout in milliseconds (optional, default: 300000)
+  reload                        Hot reload a target add-in (OnShutdown old, unload, load, OnStartup)
+    --dll <path>                Path to the target add-in DLL (required)
+    --type <typename>           IExternalApplication type name (required)
+    --timeout <ms>              Timeout in milliseconds (optional, default: 300000)
+  unload                        OnShutdown the target add-in and unload its generation
+    --timeout <ms>              Timeout in milliseconds (optional, default: 300000)
+  target-status                 Show the hot reloaded target add-in (generation, state, ribbon slots)
     --timeout <ms>              Timeout in milliseconds (optional, default: 300000)
   shutdown                      Stop the IPC server (Revit continues running)
   dialog-log                    Show recent dialog auto-handling records (JSONL)
@@ -695,6 +712,52 @@ Exit codes:
             var response = await client.SendRequestAsync(request, timeout + 10000);
             Console.WriteLine(JsonConvert.SerializeObject(response, Formatting.Indented));
 
+            return response.Ok ? ExitSuccess : ExitFailure;
+        }
+
+        private static (string? Value, int Timeout) ReadOption(string[] args, string name, int timeout)
+        {
+            string? value = null;
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length) value = args[++i];
+                else if (string.Equals(args[i], "--timeout", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length && int.TryParse(args[++i], out var t)) timeout = t;
+            }
+            return (value, timeout);
+        }
+
+        private static async Task<int> RunReloadAsync(string[] args)
+        {
+            var (dll, timeout) = ReadOption(args, "--dll", 300000);
+            var (type, _) = ReadOption(args, "--type", timeout);
+            if (string.IsNullOrEmpty(dll)) { Console.Error.WriteLine("Error: --dll is required"); return ExitFailure; }
+            if (string.IsNullOrEmpty(type)) { Console.Error.WriteLine("Error: --type is required"); return ExitFailure; }
+            return await SendTargetRequestAsync(Operations.Reload, timeout, new Dictionary<string, object>
+            {
+                ["assemblyPath"] = Path.GetFullPath(dll!),
+                ["entryType"] = type!
+            });
+        }
+
+        private static async Task<int> RunSimpleTargetAsync(string[] args, string op)
+        {
+            var (_, timeout) = ReadOption(args, "--timeout", 300000);
+            return await SendTargetRequestAsync(op, timeout, null);
+        }
+
+        private static async Task<int> SendTargetRequestAsync(string op, int timeout, Dictionary<string, object>? payload)
+        {
+            using var client = new IpcClient();
+            await client.ConnectAsync();
+            var request = new IpcRequest
+            {
+                Id = Guid.NewGuid().ToString(),
+                Op = op,
+                Timestamp = DateTime.UtcNow.ToString("O"),
+                Payload = payload
+            };
+            var response = await client.SendRequestAsync(request, timeout + 10000);
+            Console.WriteLine(JsonConvert.SerializeObject(response, Formatting.Indented));
             return response.Ok ? ExitSuccess : ExitFailure;
         }
 

@@ -4,6 +4,7 @@ using Autodesk.Revit.UI;
 using RevitHarness.Addin.Commands;
 using RevitHarness.Addin.DialogHandling;
 using RevitHarness.Addin.Ipc;
+using RevitHarness.Contracts;
 using System;
 using System.IO;
 using System.Reflection;
@@ -19,6 +20,7 @@ namespace RevitHarness.Addin
         private HarnessEventHandler? _eventHandler;
         private Timer? _processingTimer;
         private DialogHooks? _dialogHooks;
+        private TargetHost? _targetHost;
         private static readonly object _logLock = new object();
         private static StreamWriter? _logWriter;
 
@@ -56,6 +58,11 @@ namespace RevitHarness.Addin
                     Log($"Dialog hooks failed (non-fatal): {dialogEx.Message}");
                 }
 
+                _targetHost = new TargetHost(new ShadowCopier(Log), Log);
+                _targetHost.Attach(application);
+                TargetHost.Instance = _targetHost;
+                TargetRibbon.Host = _targetHost;
+
                 // Start IPC server
                 _server.Start();
 
@@ -76,6 +83,8 @@ namespace RevitHarness.Addin
                     Log($"Ribbon creation failed (non-fatal): {ribbonEx.Message}");
                 }
 
+                _targetHost.RestoreSaved();
+
                 Log("RevitHarness add-in started successfully");
                 return Result.Succeeded;
             }
@@ -95,6 +104,11 @@ namespace RevitHarness.Addin
             try
             {
                 Log("RevitHarness add-in shutting down...");
+
+                _targetHost?.StopForRevitExit();
+                TargetHost.Instance = null;
+                TargetRibbon.Host = null;
+                _targetHost = null;
 
                 _dialogHooks?.Unsubscribe();
                 _dialogHooks = null;

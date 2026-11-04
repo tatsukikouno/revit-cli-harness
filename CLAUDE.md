@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Revit 2024/2025/2026/2027 harness add-in that enables external CLI/agent execution of tests, commands, and element inspection within a running Revit instance. Supports DLL hot-swapping via shadow copy + byte-array loading without restarting Revit.
+A Revit 2024/2025/2026/2027 harness add-in that enables external CLI/agent execution of tests, commands, and element inspection within a running Revit instance. Supports target add-in hot reload via shadow copy and runtime-specific generation loading without restarting Revit.
 
 ### Key Architecture
 
 - **IPC Communication**: Named Pipe (`\\.\pipe\RevitHarness2024`) with JSON messages and int32 LE length-prefix framing
 - **Thread Safety**: All Revit API calls go through `ExternalEvent` → `HarnessEventHandler.Execute()` on Revit's main thread. A 100ms polling timer in `App.cs` raises the event when requests are pending.
-- **Shadow Copy + Byte Load**: DLLs are copied to `%LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\`, then loaded via `Assembly.Load(byte[])` to bypass the .NET assembly cache entirely. This enables true hot-reload of same-name/same-version assemblies. Old shadow dirs auto-clean (max 10 generations, >1 day old).
+- **Generation loading**: Shadow-copy DLLs before loading. Revit 2024 byte-loads each new generation, including the target’s own helper DLLs; Revit 2025–2027 create a new collectible AssemblyLoadContext per generation. Revit API and Contracts stay shared. Old shadow directory cleanup protects active and live old generations.
 - **Mixed Frameworks**: Addin and Lookup both multi-target per Revit year via Configuration suffix (`R24`/`R25`/`R26`/`R27`) — `net48` for Revit 2024, `net8.0-windows` for Revit 2025/2026, `net10.0-windows` for Revit 2027. Contracts multi-targets `net48;net8.0-windows;net10.0-windows` directly (published NuGet package). CLI and DialogWatcher target .NET 10 (independent of Revit's runtime); the CLI targets `net10.0` (a `dotnet tool` cannot use a Windows-specific TFM).
 - **Embedded Resources**: CLI embeds the Addin build output as EmbeddedResources for self-contained `install` deployment. The DialogWatcher build output and `skills/` ship as plain files next to the CLI dll in the nupkg (`tools/net10.0/any/watcher`, `/skills`), and `install` copies them to `%LOCALAPPDATA%\RevitHarness\watcher` and `%USERPROFILE%\.claude\skills` (or `--skills-dir`)
 
@@ -55,7 +55,8 @@ src/
 ├── RevitHarness.Contracts/          # net48;net8.0-windows;net10.0-windows - Shared interfaces (NuGet package)
 │   ├── ITestEntryPoint.cs           # Test entry point interface
 │   ├── IHarnessCommand.cs           # CLI-only command interface
-│   └── HarnessCommandBase.cs        # Dual-use: CLI (IHarnessCommand) + Ribbon (IExternalCommand)
+│   ├── HarnessCommandBase.cs        # Dual-use: CLI (IHarnessCommand) + Ribbon (IExternalCommand)
+│   └── TargetRibbon.cs              # Current-generation ribbon button binding
 │
 ├── RevitHarness.Addin/              # net48 (R24) / net8.0-windows (R25/R26) / net10.0-windows (R27) - Revit add-in (UseWPF=true)
 │   ├── App.cs                       # IExternalApplication: starts IpcServer, ExternalEvent, ribbon
@@ -67,7 +68,8 @@ src/
 │   │   ├── IpcMessages.cs           # Request/Response/Operations/ErrorCodes
 │   │   ├── IpcServer.cs             # Named Pipe server with concurrent request queue
 │   │   ├── HarnessEventHandler.cs   # Dispatches IPC ops on Revit main thread
-│   │   └── ShadowCopier.cs          # Shadow copy + byte-array assembly loading
+│   │   ├── GenerationLoader.cs      # Runtime-specific generation loading
+│   │   └── ShadowCopier.cs          # Shadow copying and generation creation
 │   └── UI/
 │       └── AddinManagerWindow.xaml   # GUI for browsing DLLs and executing commands
 │
@@ -80,9 +82,11 @@ src/
     ├── Program.cs                   # Command routing (manual arg parsing, no library)
     ├── IpcClient.cs                 # Named Pipe client
     ├── IpcMessages.cs               # Message classes (separate copy from Addin)
+    ├── skills/revit-harness-reload/  # Target hot reload workflow (auto-distributed)
     └── Installation/
         └── RevitInstaller.cs        # Extracts embedded resources to Revit addins folder
 
+samples/SampleTarget/               # Standalone Core + target + independent probe (outside solution)
 lib/LookupEngine/                    # External library used by RevitHarness.Lookup, vendored per-TFM (net48/, net8.0-windows/, net10.0-windows/)
 ```
 
@@ -107,6 +111,9 @@ Operations dispatched in `HarnessEventHandler.ProcessRequest()`:
 - `runTests` — Shadow-copy DLL, load via reflection, execute `ITestEntryPoint.Run()`
 - `runCommand` — Execute `IHarnessCommand` or `IExternalCommand` via `CommandExecutor`
 - `lookupElement` — Inspect element by ElementId using `ElementInspector`
+- `reload` — Replace target IExternalApplication: shutdown, dispose, shadow-copy, startup
+- `unload` — Stop/dispose target and delete persisted selection
+- `targetStatus` — Target state, generation counts, memory, ribbon slots
 - `shutdown` — Stop IPC server (Revit continues running)
 - `dialog-log` — Return recent dialog JSONL records (`count`); handled off the main thread
 - `reload-allowlist` — Validate the dialog allowlist; handled off the main thread
@@ -122,6 +129,9 @@ revit-harness status [--revit-version 2024]
 revit-harness ping
 revit-harness run-tests --dll <path> --type <typename> [--filter <filter>] [--timeout <ms>]
 revit-harness run-command --dll <path> --type <typename> [--args '{"key":"value"}'] [--timeout <ms>]
+revit-harness reload --dll <path> --type <IExternalApplication type> [--timeout <ms>]
+revit-harness unload [--timeout <ms>]
+revit-harness target-status
 revit-harness post-command --id <commandId>
 revit-harness lookup --id <elementId> [--depth <n>] [--max-members <n>] [--include-fields] [--include-private] [--include-static] [--filter <name>]
 revit-harness dialog-log [--count <n>]
@@ -131,6 +141,24 @@ revit-harness dialog-pending [--all]
 revit-harness dialog-decide --id <pendingId> --button <name> --by <decider> [--button-id <automationId>] [--save-rule] [--timeout <ms>]
 revit-harness shutdown
 ```
+
+## Target hot reload
+
+The harness `.addin` is the thin loader; do not also load the target through its own `.addin`.
+A successful reload persists DLL path/type in `%LOCALAPPDATA%\RevitHarness\target.json`;
+App.OnStartup restores it non-fatally, and unload deletes it. Reload always runs old OnShutdown,
+disposes the old generation, shadow-copies, creates a new generation, then runs OnStartup.
+Shutdown exceptions are logged/warned and reload continues; startup exceptions fail the request
+and leave state Unloaded. `target-status` is separate from installation `status`.
+
+Target OnStartup uses `TargetRibbon.AddPushButton(panel, name, text, commandType)`.
+The same `(panel.Name, name)` updates and rebinds a button. Revit cannot remove ribbon items:
+permanent `TargetSlot0`–`TargetSlot7` stubs in the harness delegate to the current generation
+(maximum eight distinct buttons). Target OnShutdown must unregister updaters, unsubscribe
+events, dispose ExternalEvent and timers, and stop background work. net48 old generations
+remain until Revit exits; net8/net10 ALC release is cooperative and reported in results.
+Native DLLs are unsupported; byte-loaded Assembly.Location is empty.
+See `samples/SampleTarget/README.md` and the `revit-harness-reload` skill for verification.
 
 ## Implementing Tests and Commands
 

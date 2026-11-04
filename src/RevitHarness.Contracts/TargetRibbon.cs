@@ -28,6 +28,7 @@ namespace RevitHarness.Contracts
         /// <summary>Set by the harness. Null when the add-in is not hosted by the harness.</summary>
         public static ITargetRibbonHost? Host { get; set; }
 
+        /// <inheritdoc cref="ITargetRibbonHost.AddPushButton"/>
         public static PushButton AddPushButton(RibbonPanel panel, string name, string text, string commandType)
         {
             var host = Host ?? throw new InvalidOperationException(

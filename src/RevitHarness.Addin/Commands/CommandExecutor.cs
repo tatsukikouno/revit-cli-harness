@@ -46,19 +46,11 @@ namespace RevitHarness.Addin.Commands
             IDictionary<string, object>? args = null)
         {
             args = args ?? new Dictionary<string, object>();
-            ResolveEventHandler? resolver = null;
 
             try
             {
-                // Shadow copy the assembly
-                _log($"Shadow copying: {assemblyPath}");
-                var shadowPath = _shadowCopier.CopyToShadow(assemblyPath);
-
-                // Load the assembly from bytes to bypass .NET assembly cache
-                _log($"Loading assembly from bytes (cache bypass)");
-                var (assembly, assemblyResolver) = _shadowCopier.LoadAssemblyFromBytes(shadowPath);
-                resolver = assemblyResolver;
-                AppDomain.CurrentDomain.AssemblyResolve += resolver;
+                using var lease = AssemblyLease.Open(_shadowCopier, assemblyPath, _log);
+                var assembly = lease.Assembly;
 
                 // Find the command type
                 var type = assembly.GetType(commandType);
@@ -163,13 +155,6 @@ namespace RevitHarness.Addin.Commands
                     ErrorMessage = ex.Message,
                     StackTrace = ex.ToString()
                 };
-            }
-            finally
-            {
-                if (resolver != null)
-                {
-                    AppDomain.CurrentDomain.AssemblyResolve -= resolver;
-                }
             }
         }
 

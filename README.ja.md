@@ -10,7 +10,7 @@ Revit 2024 / 2025 / 2026 / 2027 用のハーネスアドイン。実行中の Re
 ## 特徴
 
 - **Named Pipe IPC** — CLI ⇄ Revit 間の高速な JSON ベース通信
-- **Shadow Copy + Byte Load** — DLL をシャドウコピーしバイト配列でロード。ファイルロック回避とアセンブリキャッシュバイパスにより、同名 DLL の繰り返し更新が可能
+- **世代ロード** — DLL をシャドウコピーし、新しい世代でロード。net48 は byte load、net8/net10 は収集可能 ALC を使い、同名 DLL と自前の補助 DLL を繰り返し更新可能
 - **Element Lookup** — RevitLookup ライクな要素インスペクションを CLI から実行
 - **Addin Manager UI** — Revit リボンから DLL を選択し、コマンドを一覧表示・実行できる GUI
 - **HarnessCommandBase** — 1 つのクラスで CLI（IHarnessCommand）とリボンボタン（IExternalCommand）の両方から実行可能
@@ -122,6 +122,50 @@ revit-harness help      # ヘルプ表示
 | 1 | 失敗（`ok=false` または `passed=false`） |
 | 2 | 接続/インフラエラー |
 
+## 対象アドインのホットリロード
+
+常駐する `IExternalApplication` と自前の補助 DLL を Revit 再起動なしで更新できる。
+Revit 2024 は net48、2025/2026 は net8.0-windows、2027 は net10.0-windows でビルドし、
+補助 DLL は本体の隣に配置する。Revit API 参照は `Private=False` にする。
+二重ロードを避けるため、対象自身の `.addin` は外し、ハーネス経由でロードする。
+
+```bash
+revit-harness reload --dll "C:\path\SampleTarget.dll" --type SampleTarget.App [--timeout <ms>]
+revit-harness target-status
+revit-harness unload [--timeout <ms>]
+```
+
+リロードは旧 `OnShutdown` → 旧世代の破棄 → シャドウコピー → 新世代の作成 → 新 `OnStartup`
+の順。Shutdown 例外は警告として返して続行し、Startup 例外は失敗（`ok=false`）となり
+`Unloaded` 状態に戻る。`target-status` は現在世代、DLL パス・型、ロード時刻、ランタイム、
+ワーキングセット、作成済み世代数、生存中の旧 ALC 数（net48 は null）、リボンの割当を返す。
+`status` は引き続きインストール状態の確認用。
+
+対象の `OnStartup` では Contracts のヘルパーでボタンを登録する。
+
+```csharp
+TargetRibbon.AddPushButton(panel, "Hello", "Hello", typeof(HelloCommand).FullName!);
+```
+
+同じ `(panel.Name, name)` は既存ボタンを再利用し、表示文字と現在世代への割当を更新する。
+Revit はリボン項目を削除できないため、ボタンは `RevitHarness.Addin.dll` の固定スタブ
+`TargetSlot0`〜`TargetSlot7` を呼ぶ。異なるボタンは最大 8 個。unload 後もボタンは残るが、
+対象コードは実行できなくなる。
+
+ハーネスの `.addin` 自体が薄いローダーになる。成功した reload の DLL パスと型は
+`%LOCALAPPDATA%\RevitHarness\target.json` に保存され、次回 Revit 起動時に復元されるので
+リボンが起動時に作られる。復元失敗は Revit 起動を妨げない。`unload` は対象を停止して
+このファイルを削除する。
+
+対象の `OnShutdown` は updater 登録解除、イベント購読解除、`ExternalEvent` とタイマーの
+Dispose、バックグラウンド処理の停止を行う必要がある。net8/net10 は世代ごとに新しい
+収集可能 AssemblyLoadContext を使うが、参照が残ると解放できない（`previousReleased`、
+`released`、warnings を確認）。net48 は毎回新しい世代を byte load し、旧世代は Revit 終了まで
+メモリに残る。ネイティブ DLL は非対応。byte load したアセンブリの `Assembly.Location` は空に
+なるため、これを使ったファイル探索に依存しないこと。
+ビルド方法と世代・補助 DLL・イベント・updater・リボンの検証例は
+[SampleTarget](samples/SampleTarget/README.md) を参照。
+
 ## Addin Manager UI
 
 Revit 起動後、リボンの **RevitHarness** タブ → **Addin Manager** ボタンからアクセス。
@@ -199,6 +243,9 @@ Named Pipe `\\.\pipe\RevitHarness2024` 上で JSON メッセージを length-pre
 | `runTests` | `ITestEntryPoint` 実行 |
 | `runCommand` | `IHarnessCommand` / `IExternalCommand` 実行 |
 | `postCommand` | 登録済み Revit コマンド実行 |
+| `reload` | 対象 IExternalApplication の世代を置換 |
+| `unload` | 対象世代を停止・破棄 |
+| `targetStatus` | 対象の状態・メモリ・世代・リボン割当 |
 | `lookupElement` | 要素インスペクション |
 | `shutdown` | IPC サーバー停止 |
 

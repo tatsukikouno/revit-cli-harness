@@ -139,6 +139,9 @@ namespace RevitHarness.Addin.Ipc
         public const string LookupElement = "lookupElement";
         public const string DialogLog = "dialog-log";
         public const string ReloadAllowlist = "reload-allowlist";
+        public const string Reload = "reload";
+        public const string Unload = "unload";
+        public const string TargetStatus = "targetStatus";
     }
 
     /// <summary>
@@ -184,5 +187,83 @@ namespace RevitHarness.Addin.Ipc
 
         [JsonProperty("message")]
         public string? Message { get; set; }
+    }
+
+    public class ReloadResult
+    {
+        [JsonProperty("generation")]
+        public int Generation { get; set; }
+
+        [JsonProperty("previousGeneration")]
+        public int? PreviousGeneration { get; set; }
+
+        [JsonProperty("previousReleased")]
+        public bool? PreviousReleased { get; set; }
+
+        [JsonProperty("warnings")]
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class UnloadResult
+    {
+        [JsonProperty("unloaded")]
+        public bool Unloaded { get; set; }
+
+        [JsonProperty("generation")]
+        public int? Generation { get; set; }
+
+        [JsonProperty("released")]
+        public bool? Released { get; set; }
+
+        [JsonProperty("warnings")]
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class RibbonSlotInfo
+    {
+        [JsonProperty("slot")]
+        public int Slot { get; set; }
+
+        [JsonProperty("panel")]
+        public string Panel { get; set; } = string.Empty;
+
+        [JsonProperty("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonProperty("commandType")]
+        public string CommandType { get; set; } = string.Empty;
+    }
+
+    public class TargetStatusResult
+    {
+        [JsonProperty("state")]
+        public string State { get; set; } = string.Empty;
+
+        [JsonProperty("generation")]
+        public int Generation { get; set; }
+
+        [JsonProperty("assemblyPath")]
+        public string? AssemblyPath { get; set; }
+
+        [JsonProperty("type")]
+        public string? Type { get; set; }
+
+        [JsonProperty("loadedAt")]
+        public string? LoadedAt { get; set; }
+
+        [JsonProperty("liveOldGenerations")]
+        public int? LiveOldGenerations { get; set; }
+
+        [JsonProperty("generationsCreated")]
+        public int GenerationsCreated { get; set; }
+
+        [JsonProperty("runtime")]
+        public string Runtime { get; set; } = string.Empty;
+
+        [JsonProperty("workingSetBytes")]
+        public long WorkingSetBytes { get; set; }
+
+        [JsonProperty("ribbonSlots")]
+        public List<RibbonSlotInfo> RibbonSlots { get; set; } = new List<RibbonSlotInfo>();
     }
 }

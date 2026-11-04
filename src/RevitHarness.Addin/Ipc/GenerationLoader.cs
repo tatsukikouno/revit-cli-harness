@@ -1,0 +1,196 @@
+#nullable enable
+
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+#if !NET48
+using System.Runtime.Loader;
+#endif
+
+namespace RevitHarness.Addin.Ipc
+{
+    public abstract class Generation : IDisposable
+    {
+        private static readonly ConcurrentDictionary<string, byte> EverOwned =
+            new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+        private static readonly object RegistryLock = new object();
+        private static readonly List<(string Directory, WeakReference Lifetime)> Shadows =
+            new List<(string, WeakReference)>();
+
+        protected Assembly? LoadedAssembly;
+        public Assembly Assembly => LoadedAssembly ?? throw new ObjectDisposedException(nameof(Generation));
+        public string ShadowPath { get; }
+        public abstract WeakReference Lifetime { get; }
+
+        protected Generation(string shadowPath) { ShadowPath = shadowPath; }
+
+        public static IReadOnlyList<string> LiveShadowDirectories
+        {
+            get
+            {
+                lock (RegistryLock)
+                {
+                    Shadows.RemoveAll(s => !s.Lifetime.IsAlive);
+                    return Shadows.Select(s => s.Directory).ToArray();
+                }
+            }
+        }
+
+        public static Generation Load(string shadowAssemblyPath, IEnumerable<Assembly> hostAssemblies, Action<string> log)
+        {
+            shadowAssemblyPath = Path.GetFullPath(shadowAssemblyPath);
+            var hosts = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
+            var owned = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            lock (RegistryLock)
+            {
+                foreach (var assembly in hostAssemblies)
+                    hosts[assembly.GetName().Name!] = assembly;
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var name = assembly.GetName().Name!;
+                    if (!EverOwned.ContainsKey(name) && !hosts.ContainsKey(name)) hosts[name] = assembly;
+                }
+                foreach (var path in Directory.GetFiles(Path.GetDirectoryName(shadowAssemblyPath)!, "*.dll"))
+                {
+                    try
+                    {
+                        var name = AssemblyName.GetAssemblyName(path).Name!;
+                        if (!hosts.ContainsKey(name)) owned[name] = path;
+                    }
+                    catch (BadImageFormatException) { log($"Skipping native DLL: {path}"); }
+                }
+                var mainName = AssemblyName.GetAssemblyName(shadowAssemblyPath).Name!;
+                if (!owned.ContainsKey(mainName))
+                    throw new InvalidOperationException($"Target assembly is already a host assembly: {mainName}");
+                foreach (var name in owned.Keys) EverOwned.TryAdd(name, 0);
+            }
+#if NET48
+            Generation generation = new ByteGeneration(shadowAssemblyPath, owned, hosts);
+#else
+            Generation generation = new CollectibleGeneration(shadowAssemblyPath, owned, hosts);
+#endif
+            lock (RegistryLock)
+                Shadows.Add((Path.GetDirectoryName(shadowAssemblyPath)!, generation.Lifetime));
+            log($"Loaded generation: {generation.Assembly.FullName}");
+            return generation;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static bool WaitUntilCollected(WeakReference lifetime)
+        {
+            for (var i = 0; lifetime.IsAlive && i < 10; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+            }
+            return !lifetime.IsAlive;
+        }
+
+        public abstract void Dispose();
+
+#if NET48
+        private sealed class ByteGeneration : Generation
+        {
+            private readonly Dictionary<string, Assembly> _assemblies = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, Assembly> _hosts;
+            private ResolveEventHandler? _resolver;
+            public override WeakReference Lifetime { get; }
+
+            public ByteGeneration(string path, Dictionary<string, string> owned, Dictionary<string, Assembly> hosts) : base(path)
+            {
+                _hosts = hosts;
+                _resolver = Resolve;
+                AppDomain.CurrentDomain.AssemblyResolve += _resolver;
+                try
+                {
+                    foreach (var item in owned)
+                    {
+                        var pdb = Path.ChangeExtension(item.Value, ".pdb");
+                        _assemblies[item.Key] = File.Exists(pdb)
+                            ? Assembly.Load(File.ReadAllBytes(item.Value), File.ReadAllBytes(pdb))
+                            : Assembly.Load(File.ReadAllBytes(item.Value));
+                    }
+                    LoadedAssembly = _assemblies[AssemblyName.GetAssemblyName(path).Name!];
+                    Lifetime = new WeakReference(LoadedAssembly, true);
+                }
+                catch { Dispose(); throw; }
+            }
+
+            private Assembly? Resolve(object? sender, ResolveEventArgs args)
+            {
+                // Resident generations can have identical identities; only the requester identifies its owner.
+                if (args.RequestingAssembly == null || !_assemblies.Values.Contains(args.RequestingAssembly)) return null;
+                var name = new AssemblyName(args.Name).Name!;
+                if (_assemblies.TryGetValue(name, out var owned)) return owned;
+                return _hosts.TryGetValue(name, out var host) ? host : null;
+            }
+
+            public override void Dispose()
+            {
+                if (_resolver != null) AppDomain.CurrentDomain.AssemblyResolve -= _resolver;
+                _resolver = null;
+                LoadedAssembly = null;
+                _assemblies.Clear();
+                _hosts.Clear();
+            }
+        }
+#else
+        private sealed class CollectibleGeneration : Generation
+        {
+            private GenerationContext? _context;
+            public override WeakReference Lifetime { get; }
+
+            public CollectibleGeneration(string path, Dictionary<string, string> owned, Dictionary<string, Assembly> hosts) : base(path)
+            {
+                _context = new GenerationContext(owned, hosts);
+                Lifetime = new WeakReference(_context, true);
+                try { LoadedAssembly = _context.LoadFromAssemblyName(AssemblyName.GetAssemblyName(path)); }
+                catch { Dispose(); throw; }
+            }
+
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            public override void Dispose()
+            {
+                LoadedAssembly = null;
+                var context = _context;
+                _context = null;
+                context?.Unload();
+            }
+        }
+
+        private sealed class GenerationContext : AssemblyLoadContext
+        {
+            private readonly Dictionary<string, string> _owned;
+            private readonly Dictionary<string, Assembly> _hosts;
+            private readonly AssemblyLoadContext _hostContext = GetLoadContext(typeof(Generation).Assembly)!;
+
+            public GenerationContext(Dictionary<string, string> owned, Dictionary<string, Assembly> hosts)
+                : base("RevitHarness-" + Guid.NewGuid().ToString("N"), isCollectible: true)
+            {
+                _owned = owned;
+                _hosts = hosts;
+            }
+
+            protected override Assembly? Load(AssemblyName name)
+            {
+                if (_owned.TryGetValue(name.Name!, out var path))
+                {
+                    using var dll = new MemoryStream(File.ReadAllBytes(path));
+                    var pdbPath = Path.ChangeExtension(path, ".pdb");
+                    using var pdb = File.Exists(pdbPath) ? new MemoryStream(File.ReadAllBytes(pdbPath)) : null;
+                    return LoadFromStream(dll, pdb);
+                }
+                if (_hosts.TryGetValue(name.Name!, out var host)) return host;
+                try { return _hostContext.LoadFromAssemblyName(name); }
+                catch (FileNotFoundException) { return null; }
+                catch (FileLoadException) { return null; }
+            }
+        }
+#endif
+    }
+}

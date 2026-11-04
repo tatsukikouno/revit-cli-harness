@@ -10,7 +10,7 @@ A harness add-in for Revit 2024, 2025, 2026 and 2027 that enables CLI and agent-
 ## Features
 
 - **Named Pipe IPC** — Fast JSON-based communication between CLI and Revit
-- **Shadow Copy + Byte Load** — DLLs are shadow-copied and loaded from byte arrays, bypassing file locks and the .NET assembly cache for seamless iterative development
+- **Generation loading** — DLLs are shadow-copied and loaded into fresh generations, bypassing file locks and the .NET assembly cache for seamless iterative development
 - **Element Lookup** — RevitLookup-style element inspection from the CLI
 - **Addin Manager UI** — A Revit ribbon button that opens a GUI to browse DLLs, scan for commands, and execute them
 - **HarnessCommandBase** — Write a single class that works both from the CLI (`IHarnessCommand`) and as a Revit ribbon button (`IExternalCommand`)
@@ -171,6 +171,50 @@ Exe options: `--once`, `--dry-run`, `--pid <revit pid>`. The allowlist, pending 
 | 1 | Failure (`ok=false` or `passed=false`) |
 | 2 | Connection / infrastructure error |
 
+## Target add-in hot reload
+
+Reload a resident `IExternalApplication` and its own helper DLLs without restarting Revit.
+Build for Revit 2024 (net48), 2025/2026 (net8.0-windows), or 2027 (net10.0-windows),
+keep helpers beside the target DLL, and use `Private=False` for Revit API references.
+Load the target through the harness only; remove its own `.addin` to avoid double loading.
+
+```bash
+revit-harness reload --dll "C:\path\SampleTarget.dll" --type SampleTarget.App [--timeout <ms>]
+revit-harness target-status
+revit-harness unload [--timeout <ms>]
+```
+
+Reload runs old `OnShutdown`, disposes the old generation, shadow-copies, and runs new
+`OnStartup`. Shutdown exceptions become warnings and reload continues. Startup exceptions
+fail the request (`ok=false`) and leave the target `Unloaded`. `target-status` reports the
+current generation, path/type, load time, runtime, working set, generation counts, old live
+ALCs (null on net48), and ribbon bindings. `status` remains the installation status command.
+
+In target `OnStartup`, register buttons with the Contracts helper:
+
+```csharp
+TargetRibbon.AddPushButton(panel, "Hello", "Hello", typeof(HelloCommand).FullName!);
+```
+
+The same `(panel.Name, name)` reuses the existing button, updates its text, and rebinds it to
+the current generation. Revit cannot remove ribbon items: buttons point to permanent
+`TargetSlot0`–`TargetSlot7` command stubs in `RevitHarness.Addin.dll`. At most eight distinct
+buttons are supported; after unload the buttons remain but cannot execute target code.
+
+The harness `.addin` serves as the thin loader. Each successful reload saves the target DLL
+path and type to `%LOCALAPPDATA%\RevitHarness\target.json`. Harness startup restores that
+target so its ribbon exists immediately; restoration failure is non-fatal. `unload` deletes
+the file and stops the target.
+
+The target's `OnShutdown` must unregister updaters, unsubscribe events, dispose
+`ExternalEvent` instances and timers, and stop background work. On net8/net10 each reload
+uses a new collectible AssemblyLoadContext; references left behind can prevent release
+(check `previousReleased`, `released`, and warnings). On net48 each reload byte-loads a new
+generation; old generations stay in memory until Revit exits. Native DLLs are unsupported.
+Byte-loaded assemblies have an empty `Assembly.Location`; avoid using it to locate assets.
+See [SampleTarget](samples/SampleTarget/README.md) for build commands and a probe of
+startup/shutdown, helper DLL updates, events, updaters, and ribbon rebinding.
+
 ## Addin Manager UI
 
 After launching Revit, access it from the **RevitHarness** ribbon tab → **Addin Manager** button.
@@ -248,6 +292,9 @@ JSON messages over Named Pipe `\\.\pipe\RevitHarness2024` with length-prefix fra
 | `runTests` | Execute `ITestEntryPoint` |
 | `runCommand` | Execute `IHarnessCommand` / `IExternalCommand` |
 | `postCommand` | Post a registered Revit command |
+| `reload` | Replace the target IExternalApplication generation |
+| `unload` | Stop and dispose the target generation |
+| `targetStatus` | Target state, memory, generations, ribbon slots |
 | `lookupElement` | Element inspection |
 | `shutdown` | Stop the IPC server |
 

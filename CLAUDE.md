@@ -102,6 +102,8 @@ Operations dispatched in `HarnessEventHandler.ProcessRequest()`:
 - `runCommand` — Execute `IHarnessCommand` or `IExternalCommand` via `CommandExecutor`
 - `lookupElement` — Inspect element by ElementId using `ElementInspector`
 - `shutdown` — Stop IPC server (Revit continues running)
+- `dialog-log` — Return recent dialog JSONL records (`count`); handled off the main thread
+- `reload-allowlist` — Validate the dialog allowlist; handled off the main thread
 
 Exit codes: 0=success, 1=failure (`ok=false` or `passed=false`), 2=connection/timeout error
 
@@ -116,6 +118,10 @@ revit-harness run-tests --dll <path> --type <typename> [--filter <filter>] [--ti
 revit-harness run-command --dll <path> --type <typename> [--args '{"key":"value"}'] [--timeout <ms>]
 revit-harness post-command --id <commandId>
 revit-harness lookup --id <elementId> [--depth <n>] [--max-members <n>] [--include-fields] [--include-private] [--include-static] [--filter <name>]
+revit-harness dialog-log [--count <n>]
+revit-harness reload-allowlist
+revit-harness dialog-pending [--all]
+revit-harness dialog-decide --id <pendingId> --button <name> --by <decider> [--save-rule] [--force] [--timeout <ms>]
 revit-harness shutdown
 ```
 
@@ -129,6 +135,42 @@ Three patterns available:
 - **`ITestEntryPoint`** — For tests: `string Run(UIApplication uiapp, IDictionary<string, object> args)` — return JSON with `passed` field
 - **`IHarnessCommand`** — CLI-only commands: `string Execute(UIApplication uiapp, IDictionary<string, object> args)`
 - **`HarnessCommandBase`** — Dual-use class that works from both CLI (`IHarnessCommand`) and Revit ribbon (`IExternalCommand`) via a single `Execute` override
+
+## Dialog Auto-Handling
+
+`App.OnStartup` subscribes `DialogHooks` (`src/RevitHarness.Addin/DialogHandling/`) to `UIControlledApplication.DialogBoxShowing` and `ControlledApplication.FailuresProcessing`; `OnShutdown` unsubscribes. Decisions go through `RevitHarness.Dialogs.Shared` (`DialogDecider`). The harness never calls an AI: unknown dialogs become pending entries that an external AI/caller resolves via `dialog-pending` / `dialog-decide`. Warnings are deleted only when an allowlist rule with a `dialogId` pattern matches `failure:<guid>`. The IPC ops `dialog-log` and `reload-allowlist` are answered on the pipe thread (`IpcServer.DirectHandler`), not through the ExternalEvent, so they work while a modal dialog blocks Revit. Revit-free logic (`DialogInfoBuilder`, `DialogSettings`, `DialogLogReader`) is compiled into `tests/RevitHarness.Dialogs.Shared.Tests` via linked files.
+
+## Pending dialogs: how an AI driving RevitHarness resolves unknown dialogs
+
+The harness never calls an AI itself. A dialog with no matching allowlist rule (or one matching a `noLearn` rule) is left untouched, dumped (UIA tree plus screenshot) and registered as a pending entry under `%LOCALAPPDATA%\RevitHarness\dialogs\pending\<id>.json`; the JSONL log gets `decidedBy="pending"`. The caller (an AI agent or a person) decides:
+
+```bash
+revit-harness dialog-pending [--all]      # open entries (id, title, automationId, buttons, bodySummary, screenshotPath, dumpPath, status)
+revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by "<agent or model name>" [--save-rule] [--force] [--timeout 10000]
+```
+
+Check for pending dialogs whenever a command seems stuck or times out (a modal dialog blocks Revit), read `bodySummary` and the screenshot, then press one of the listed buttons. A nonexistent button is rejected. The watcher (`scripts/dialog-watcher.ps1 start`) must be running: it presses the button by UI Automation and completes the entry, which the CLI waits for (exit 0 resolved, 1 rejected/stale/failed, 2 watcher did not pick it up; the request is then withdrawn). `--by` is mandatory and lands in the log as `decidedBy="external"`, `deciderName=<by>`. A dialog that disappears before the decision is marked `stale` and cannot be decided.
+
+`--save-rule` also writes an allowlist rule, but only for buttons known to be reversible (OK, Cancel, Close). `--force` extends that to other buttons. A dialog covered by a `noLearn` rule is never saved, and neither is anything on the unsigned add-in security dialog.
+
+**Testers**: mark the dialogs your test deliberately provokes with a rule that has `"noLearn": true`, so they are never auto-pressed or learned and always reach the caller as pending (see `samples/allowlist.sample.json`).
+
+## Unsigned add-in security dialog
+
+Rules can carry `match.addIn` is a plain string, not a pattern object. It is compared ordinal and case-insensitively against the add-in name, the dll path and the dll file name extracted from the dialog body. Without `*` it must match one of them exactly. A trailing `*` (for example `Contoso.*`) makes it a prefix match; any other `*` is literal and there is no regex. A lone `*` matches every add-in, so it loads unknown unsigned add-ins too. For "Security - Unsigned Add-in", only a rule with an `addIn` condition can answer, so known add-ins get the configured button (for example "Load Once") and every other add-in becomes pending. "Always Load" and "Do Not Load" are never learned. Rules may also use `match.automationId` and `match.buttons` (exact button-name set) next to `title` and `text`. See `samples/allowlist.sample.json`.
+
+## Dialog Watcher (FlaUI)
+
+`src/RevitHarness.DialogWatcher` is a resident exe (net8.0-windows, no Revit dependency) that watches Revit.exe top-level windows and Windows error reporting dialogs (WerFault) through UI Automation (WindowOpened event plus a 300 ms poll). Known dialogs are answered from the allowlist (`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`) by pressing the button with the UIA Invoke pattern (never the real mouse). Unknown dialogs get a UIA tree dump in `dialogs\dumps\`, a screenshot in `dialogs\screenshots\` and a JSONL log record plus a pending entry; nothing is pressed.
+
+```bash
+dotnet build src/RevitHarness.DialogWatcher -c Debug -p:Platform=x64
+powershell.exe -File scripts/dialog-watcher.ps1 start        # also: stop | status | tail-log [-Follow]
+RevitHarness.DialogWatcher.exe --once --dry-run              # one pass, log only
+RevitHarness.DialogWatcher.exe --selftest                    # fake WinForms dialog, needs an interactive desktop
+```
+
+Options: `--once`, `--dry-run`, `--pid <revit pid>`, `--allowlist <path>` (read-only, no learning), `--log-dir <dir>` (used like LOCALAPPDATA, records land in `<dir>\RevitHarness\dialogs`). Stop with Ctrl+C or by creating `dialogs\watcher.stop`. A named mutex prevents a second instance.
 
 ## Logs
 

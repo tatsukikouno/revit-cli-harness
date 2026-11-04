@@ -95,6 +95,10 @@ lib/LookupEngine/                    # External library used by RevitHarness.Loo
 - **Debug**: Addin project configured to launch Revit.exe directly
 - **IpcMessages duplication**: Both Addin and CLI have their own `IpcMessages.cs` because they target different frameworks
 
+## Design Policy
+
+- Do not keep unnecessary options, fallbacks, or backward-compatibility shims. When a spec changes, delete the old mechanism instead of keeping it behind an option.
+
 ## IPC Protocol
 
 Operations dispatched in `HarnessEventHandler.ProcessRequest()`:

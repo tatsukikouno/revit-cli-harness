@@ -57,4 +57,23 @@
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
+
+  <!-- The dialog watcher and the SKILLs ship as plain files next to the CLI (tools/net8.0/any/watcher
+       and /skills in the nupkg); `revit-harness install` copies them out. Build the watcher project
+       (same configuration, -p:Platform=x64) before packing. -->
+  <PropertyGroup>
+    <WatcherOutput>..\RevitHarness.DialogWatcher\bin\x64\$(Configuration)\net8.0-windows\</WatcherOutput>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="skills\**\*" Link="skills\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(WatcherOutput)**\*" Exclude="$(WatcherOutput)**\*.pdb"
+             Link="watcher\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             Condition="Exists('$(WatcherOutput)RevitHarness.DialogWatcher.exe')" />
+  </ItemGroup>
+  <Target Name="RequireWatcherForPack" BeforeTargets="GenerateNuspec"
+          Condition="!Exists('$(WatcherOutput)RevitHarness.DialogWatcher.exe')">
+    <Error Text="DialogWatcher build output not found at $(WatcherOutput). Build src/RevitHarness.DialogWatcher with -c $(Configuration) -p:Platform=x64 first." />
+  </Target>
 </Project>

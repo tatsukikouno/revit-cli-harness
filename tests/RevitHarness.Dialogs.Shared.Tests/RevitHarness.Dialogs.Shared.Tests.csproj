@@ -12,6 +12,14 @@
     <Compile Include="..\..\src\RevitHarness.Addin\Ipc\IpcMessages.cs" Link="Addin\IpcMessages.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\..\src\RevitHarness.Cli\Installation\*.cs" Link="Cli\%(Filename)%(Extension)" />
+    <!-- Stand-ins for the add-in files the CLI embeds, read by the linked RevitInstaller. -->
+    <EmbeddedResource Include="TestData\RevitHarness.Addin.dll" LogicalName="2024/RevitHarness.Addin.dll" />
+    <EmbeddedResource Include="TestData\RevitHarness.Contracts.dll" LogicalName="2024/RevitHarness.Contracts.dll" />
+    <EmbeddedResource Include="TestData\RevitHarness.Addin.2025.dll" LogicalName="2025/RevitHarness.Addin.dll" />
+    <EmbeddedResource Include="TestData\RevitHarness.addin" LogicalName="RevitHarness.addin" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="Newtonsoft.Json" />

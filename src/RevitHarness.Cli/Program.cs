@@ -73,6 +73,9 @@ namespace RevitHarness.Cli
                     case "dialog-decide":
                         return RunDialogDecide(args);
 
+                    case "dialog-watcher":
+                        return RunDialogWatcher(args);
+
                     case "reload-allowlist":
                         return await RunReloadAllowlistAsync();
 
@@ -139,11 +142,14 @@ namespace RevitHarness.Cli
             Console.Error.WriteLine(@"Usage: revit-harness <command> [options]
 
 Installation Commands:
-  install                       Install RevitHarness add-in to Revit
+  install                       Install the add-in to Revit, the dialog watcher to
+                                %LOCALAPPDATA%\RevitHarness\watcher and the SKILLs
     --revit-version <year>      Revit version (e.g., 2024, 2025, 2026) (required)
-    --force                     Force reinstall if already installed
-  uninstall                     Uninstall RevitHarness add-in from Revit
+    --skills-dir <path>         SKILL folder (optional, default: %USERPROFILE%\.claude\skills)
+  uninstall                     Remove the add-in; the last uninstall also removes the watcher
+                                and SKILLs (the dialogs data folder is kept)
     --revit-version <year>      Revit version (e.g., 2024, 2025, 2026) (required)
+    --skills-dir <path>         SKILL folder used at install (optional)
   status                        Show installation status
     --revit-version <year>      Revit version (optional, shows all if omitted)
 
@@ -170,6 +176,8 @@ IPC Commands:
     --by <name>                 Who decided, e.g. the agent or model name (required)
     --save-rule                 Also save an allowlist rule (reversible buttons only)
     --timeout <ms>              Wait for the watcher (optional, default: 10000)
+  dialog-watcher start|stop|status
+                                Start (idempotent), stop or inspect the dialog watcher
   reload-allowlist              Re-read and validate the dialog allowlist
   lookup                        Inspect a Revit element by ElementId
     --id <elementId>            Element ID to inspect (required)
@@ -192,7 +200,7 @@ Exit codes:
         private static int RunInstall(string[] args)
         {
             int? revitVersion = null;
-            bool force = false;
+            string? skillsDir = null;
 
             for (int i = 1; i < args.Length; i++)
             {
@@ -202,8 +210,8 @@ Exit codes:
                         if (i + 1 < args.Length && int.TryParse(args[++i], out var v))
                             revitVersion = v;
                         break;
-                    case "--force":
-                        force = true;
+                    case "--skills-dir":
+                        skillsDir = i + 1 < args.Length ? args[++i] : null;
                         break;
                 }
             }
@@ -216,7 +224,7 @@ Exit codes:
 
             Console.WriteLine($"Installing RevitHarness for Revit {revitVersion}...");
 
-            var result = RevitInstaller.Install(revitVersion.Value, force);
+            var result = new RevitInstaller(InstallLayout.Create(skillsDir)).Install(revitVersion.Value);
 
             if (result.Success)
             {
@@ -242,6 +250,7 @@ Exit codes:
         private static int RunUninstall(string[] args)
         {
             int? revitVersion = null;
+            string? skillsDir = null;
 
             for (int i = 1; i < args.Length; i++)
             {
@@ -250,6 +259,9 @@ Exit codes:
                     case "--revit-version":
                         if (i + 1 < args.Length && int.TryParse(args[++i], out var v))
                             revitVersion = v;
+                        break;
+                    case "--skills-dir":
+                        skillsDir = i + 1 < args.Length ? args[++i] : null;
                         break;
                 }
             }
@@ -262,7 +274,7 @@ Exit codes:
 
             Console.WriteLine($"Uninstalling RevitHarness from Revit {revitVersion}...");
 
-            var result = RevitInstaller.Uninstall(revitVersion.Value);
+            var result = new RevitInstaller(InstallLayout.Create(skillsDir)).Uninstall(revitVersion.Value);
 
             if (result.Success)
             {
@@ -299,15 +311,16 @@ Exit codes:
                 }
             }
 
+            var installer = new RevitInstaller(InstallLayout.Create(null));
             if (revitVersion.HasValue)
             {
                 // Show status for specific version
-                PrintStatusForVersion(revitVersion.Value);
+                PrintStatusForVersion(installer, revitVersion.Value);
             }
             else
             {
                 // Show status for all detected Revit versions
-                var versions = RevitInstaller.GetInstalledRevitVersions();
+                var versions = installer.GetInstalledRevitVersions();
 
                 if (versions.Count == 0)
                 {
@@ -320,7 +333,7 @@ Exit codes:
 
                 foreach (var version in versions)
                 {
-                    PrintStatusForVersion(version);
+                    PrintStatusForVersion(installer, version);
                     Console.WriteLine();
                 }
             }
@@ -328,9 +341,9 @@ Exit codes:
             return ExitSuccess;
         }
 
-        private static void PrintStatusForVersion(int revitVersion)
+        private static void PrintStatusForVersion(RevitInstaller installer, int revitVersion)
         {
-            var status = RevitInstaller.GetStatus(revitVersion);
+            var status = installer.GetStatus(revitVersion);
 
             var statusText = status.IsInstalled ? "INSTALLED" : "NOT INSTALLED";
             Console.WriteLine($"Revit {revitVersion}: {statusText}");
@@ -452,7 +465,7 @@ Exit codes:
             if (result == null)
             {
                 Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(Print(false,
-                    "the DialogWatcher did not apply the decision in time (is it running? scripts/dialog-watcher.ps1 status); request withdrawn",
+                    "the DialogWatcher did not apply the decision in time (is it running? revit-harness dialog-watcher start); request withdrawn",
                     store.Get(id!)), DialogJson));
                 return ExitConnectionError;
             }
@@ -461,6 +474,31 @@ Exit codes:
             Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(
                 Print(ok, ok ? null : result.StaleReason ?? result.Resolution?.Note ?? result.Status, result), DialogJson));
             return ok ? ExitSuccess : ExitFailure;
+        }
+
+        private static int RunDialogWatcher(string[] args)
+        {
+            var verb = args.Length == 2 ? args[1].ToLowerInvariant() : null;
+            if (verb != "start" && verb != "stop" && verb != "status")
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { ok = false, error = "usage: revit-harness dialog-watcher start|stop|status" }, DialogJson));
+                return ExitFailure;
+            }
+
+            var watcher = new WatcherControl(InstallLayout.Create(null));
+            var result = verb == "start" ? watcher.Start()
+                : verb == "stop" ? watcher.Stop()
+                : watcher.Status();
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+            {
+                ok = result.Ok,
+                message = result.Message,
+                running = result.State.Running,
+                pid = result.State.Pid,
+                logDirectory = result.State.LogDirectory,
+                latestLog = result.State.LatestLog
+            }, DialogJson));
+            return result.Ok ? ExitSuccess : ExitFailure;
         }
 
         private static int PrintDialogUsageError(string error)

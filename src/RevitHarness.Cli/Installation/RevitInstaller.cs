@@ -9,62 +9,42 @@ using System.Reflection;
 namespace RevitHarness.Cli.Installation
 {
     /// <summary>
-    /// Handles installation and uninstallation of the RevitHarness add-in to Revit.
+    /// Installs and removes the RevitHarness add-in, the DialogWatcher and the SKILLs.
     /// </summary>
-    public static class RevitInstaller
+    public sealed class RevitInstaller
     {
         private static readonly int[] SupportedRevitVersions = { 2024, 2025, 2026 };
 
         private const string AddinManifestResourceName = "RevitHarness.addin";
 
-        /// <summary>
-        /// Gets the Revit addins folder path for a specific version.
-        /// </summary>
-        public static string GetAddinsFolder(int revitVersion)
+        private readonly InstallLayout _layout;
+        private readonly WatcherControl _watcher;
+
+        public RevitInstaller(InstallLayout layout)
+            : this(layout, new WatcherControl(layout))
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            return Path.Combine(appData, "Autodesk", "Revit", "Addins", revitVersion.ToString());
         }
 
-        /// <summary>
-        /// Gets the RevitHarness installation folder within the addins folder.
-        /// </summary>
-        public static string GetInstallationFolder(int revitVersion)
+        public RevitInstaller(InstallLayout layout, WatcherControl watcher)
         {
-            return Path.Combine(GetAddinsFolder(revitVersion), "RevitHarness");
+            _layout = layout;
+            _watcher = watcher;
         }
 
-        /// <summary>
-        /// Gets the path to the .addin manifest file.
-        /// </summary>
-        public static string GetAddinManifestPath(int revitVersion)
+        public bool IsInstalled(int revitVersion)
         {
-            return Path.Combine(GetAddinsFolder(revitVersion), "RevitHarness.addin");
+            return File.Exists(_layout.ManifestPath(revitVersion)) &&
+                File.Exists(Path.Combine(_layout.InstallationFolder(revitVersion), "RevitHarness.Addin.dll"));
         }
 
-        /// <summary>
-        /// Checks if RevitHarness is installed for a specific Revit version.
-        /// </summary>
-        public static bool IsInstalled(int revitVersion)
-        {
-            var manifestPath = GetAddinManifestPath(revitVersion);
-            var installFolder = GetInstallationFolder(revitVersion);
-            var addinDll = Path.Combine(installFolder, "RevitHarness.Addin.dll");
-
-            return File.Exists(manifestPath) && File.Exists(addinDll);
-        }
-
-        /// <summary>
-        /// Gets installation status information for a specific Revit version.
-        /// </summary>
-        public static InstallationStatus GetStatus(int revitVersion)
+        public InstallationStatus GetStatus(int revitVersion)
         {
             var status = new InstallationStatus
             {
                 RevitVersion = revitVersion,
-                AddinsFolder = GetAddinsFolder(revitVersion),
-                InstallationFolder = GetInstallationFolder(revitVersion),
-                ManifestPath = GetAddinManifestPath(revitVersion)
+                AddinsFolder = _layout.AddinsFolder(revitVersion),
+                InstallationFolder = _layout.InstallationFolder(revitVersion),
+                ManifestPath = _layout.ManifestPath(revitVersion)
             };
 
             status.AddinsFolderExists = Directory.Exists(status.AddinsFolder);
@@ -78,25 +58,19 @@ namespace RevitHarness.Cli.Installation
                     .ToList()!;
             }
 
-            status.IsInstalled = status.ManifestExists &&
-                status.InstallationFolderExists &&
-                File.Exists(Path.Combine(status.InstallationFolder, "RevitHarness.Addin.dll"));
-
+            status.IsInstalled = IsInstalled(revitVersion);
             return status;
         }
 
         /// <summary>
-        /// Gets all supported Revit versions that have an addins folder.
+        /// Gets all Revit versions that have an addins folder.
         /// </summary>
-        public static List<int> GetInstalledRevitVersions()
+        public List<int> GetInstalledRevitVersions()
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var revitFolder = Path.Combine(appData, "Autodesk", "Revit", "Addins");
-
-            if (!Directory.Exists(revitFolder))
+            if (!Directory.Exists(_layout.AddinsRoot))
                 return new List<int>();
 
-            return Directory.GetDirectories(revitFolder)
+            return Directory.GetDirectories(_layout.AddinsRoot)
                 .Select(Path.GetFileName)
                 .Where(name => int.TryParse(name, out var year) && year >= 2019 && year <= 2030)
                 .Select(name => int.Parse(name!))
@@ -105,9 +79,10 @@ namespace RevitHarness.Cli.Installation
         }
 
         /// <summary>
-        /// Installs the RevitHarness add-in for a specific Revit version.
+        /// Installs the add-in for one Revit version, plus the watcher and the SKILLs. Re-running
+        /// replaces everything this installs; a running watcher is stopped first.
         /// </summary>
-        public static InstallResult Install(int revitVersion, bool force = false)
+        public InstallResult Install(int revitVersion)
         {
             var result = new InstallResult { RevitVersion = revitVersion };
 
@@ -120,23 +95,14 @@ namespace RevitHarness.Cli.Installation
 
             try
             {
-                var addinsFolder = GetAddinsFolder(revitVersion);
-                var installFolder = GetInstallationFolder(revitVersion);
-                var manifestPath = GetAddinManifestPath(revitVersion);
+                var addinsFolder = _layout.AddinsFolder(revitVersion);
+                var installFolder = _layout.InstallationFolder(revitVersion);
+                var manifestPath = _layout.ManifestPath(revitVersion);
 
-                // Check if addins folder exists
                 if (!Directory.Exists(addinsFolder))
                 {
                     result.Success = false;
                     result.Message = $"Revit {revitVersion} addins folder does not exist: {addinsFolder}";
-                    return result;
-                }
-
-                // Check if already installed
-                if (IsInstalled(revitVersion) && !force)
-                {
-                    result.Success = false;
-                    result.Message = $"RevitHarness is already installed for Revit {revitVersion}. Use --force to reinstall.";
                     return result;
                 }
 
@@ -153,20 +119,31 @@ namespace RevitHarness.Cli.Installation
                     return result;
                 }
 
-                // Create installation folder
-                Directory.CreateDirectory(installFolder);
+                if (!Directory.Exists(_layout.BundledWatcherDir) || !Directory.Exists(_layout.BundledSkillsDir))
+                {
+                    result.Success = false;
+                    result.Message = $"This CLI build does not bundle the watcher or the SKILLs (expected {_layout.BundledWatcherDir} and {_layout.BundledSkillsDir}).";
+                    return result;
+                }
+
+                var stopped = _watcher.Stop();
+                if (!stopped.Ok)
+                {
+                    result.Success = false;
+                    result.Message = $"Cannot replace the watcher: {stopped.Message}";
+                    return result;
+                }
 
                 var extractedFiles = new List<string>();
 
+                ReplaceDirectory(installFolder);
                 foreach (var resourceName in versionedResourceNames)
                 {
                     using var stream = assembly.GetManifestResourceStream(resourceName);
                     if (stream == null)
                         continue;
 
-                    var fileName = resourceName.Substring(prefix.Length);
-                    var destPath = Path.Combine(installFolder, fileName);
-
+                    var destPath = Path.Combine(installFolder, resourceName.Substring(prefix.Length));
                     using var fileStream = File.Create(destPath);
                     stream.CopyTo(fileStream);
                     extractedFiles.Add(destPath);
@@ -180,6 +157,16 @@ namespace RevitHarness.Cli.Installation
                         manifestStream.CopyTo(manifestFileStream);
                         extractedFiles.Add(manifestPath);
                     }
+                }
+
+                ReplaceDirectory(_layout.WatcherDir);
+                CopyDirectory(_layout.BundledWatcherDir, _layout.WatcherDir, extractedFiles);
+
+                foreach (var skill in BundledSkillNames())
+                {
+                    var dest = Path.Combine(_layout.SkillsDir, skill);
+                    ReplaceDirectory(dest);
+                    CopyDirectory(Path.Combine(_layout.BundledSkillsDir, skill), dest, extractedFiles);
                 }
 
                 result.Success = true;
@@ -197,50 +184,62 @@ namespace RevitHarness.Cli.Installation
         }
 
         /// <summary>
-        /// Uninstalls the RevitHarness add-in for a specific Revit version.
+        /// Removes the add-in for one Revit version. The watcher and the SKILLs are shared by all
+        /// versions, so they go with the last installed version. The dialogs data folder stays.
         /// </summary>
-        public static UninstallResult Uninstall(int revitVersion)
+        public UninstallResult Uninstall(int revitVersion)
         {
             var result = new UninstallResult { RevitVersion = revitVersion };
 
             try
             {
-                var installFolder = GetInstallationFolder(revitVersion);
-                var manifestPath = GetAddinManifestPath(revitVersion);
-
                 var removedFiles = new List<string>();
 
-                // Remove manifest
+                var manifestPath = _layout.ManifestPath(revitVersion);
                 if (File.Exists(manifestPath))
                 {
                     File.Delete(manifestPath);
                     removedFiles.Add(manifestPath);
                 }
 
-                // Remove installation folder
+                var installFolder = _layout.InstallationFolder(revitVersion);
                 if (Directory.Exists(installFolder))
                 {
-                    var files = Directory.GetFiles(installFolder);
-                    foreach (var file in files)
-                    {
-                        File.Delete(file);
-                        removedFiles.Add(file);
-                    }
-                    Directory.Delete(installFolder);
+                    Directory.Delete(installFolder, recursive: true);
                     removedFiles.Add(installFolder);
                 }
 
-                if (removedFiles.Count == 0)
+                if (!SupportedRevitVersions.Any(IsInstalled))
                 {
-                    result.Success = true;
-                    result.Message = $"RevitHarness was not installed for Revit {revitVersion}";
+                    var stopped = _watcher.Stop();
+                    if (!stopped.Ok)
+                    {
+                        result.Success = false;
+                        result.Message = $"Cannot remove the watcher: {stopped.Message}";
+                        return result;
+                    }
+
+                    if (Directory.Exists(_layout.WatcherDir))
+                    {
+                        Directory.Delete(_layout.WatcherDir, recursive: true);
+                        removedFiles.Add(_layout.WatcherDir);
+                    }
+
+                    foreach (var skill in BundledSkillNames())
+                    {
+                        var dest = Path.Combine(_layout.SkillsDir, skill);
+                        if (!Directory.Exists(dest))
+                            continue;
+                        Directory.Delete(dest, recursive: true);
+                        removedFiles.Add(dest);
+                    }
                 }
-                else
-                {
-                    result.Success = true;
-                    result.Message = $"RevitHarness uninstalled successfully from Revit {revitVersion}";
-                    result.RemovedFiles = removedFiles;
-                }
+
+                result.Success = true;
+                result.Message = removedFiles.Count == 0
+                    ? $"RevitHarness was not installed for Revit {revitVersion}"
+                    : $"RevitHarness uninstalled successfully from Revit {revitVersion}";
+                result.RemovedFiles = removedFiles;
             }
             catch (Exception ex)
             {
@@ -249,6 +248,29 @@ namespace RevitHarness.Cli.Installation
             }
 
             return result;
+        }
+
+        private IEnumerable<string> BundledSkillNames() =>
+            Directory.Exists(_layout.BundledSkillsDir)
+                ? Directory.GetDirectories(_layout.BundledSkillsDir).Select(d => Path.GetFileName(d)!)
+                : Enumerable.Empty<string>();
+
+        private static void ReplaceDirectory(string path)
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
+            Directory.CreateDirectory(path);
+        }
+
+        private static void CopyDirectory(string source, string dest, List<string> copied)
+        {
+            foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+            {
+                var target = Path.Combine(dest, Path.GetRelativePath(source, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target, overwrite: true);
+                copied.Add(target);
+            }
         }
     }
 

@@ -314,6 +314,43 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
+        public void Start_finds_the_desktop_runtime_under_DOTNET_ROOT_when_Program_Files_has_none()
+        {
+            var customRoot = Path.Combine(_root, "custom-dotnet");
+            Directory.CreateDirectory(Path.Combine(customRoot, "shared", "Microsoft.WindowsDesktop.App", "10.0.1"));
+            var emptyProgramFiles = Path.Combine(_root, "program-files");
+            var layout = new InstallLayout(_layout.AppData, _layout.LocalAppData, _layout.SkillsDir, _layout.BundleRoot,
+                InstallLayout.DotnetRootCandidates(customRoot, emptyProgramFiles));
+            var control = new WatcherControl(layout, pid => pid == 9 ? WatcherName : null, _ => { WritePid(9); return 9; });
+
+            Assert.True(control.Start().Ok);
+        }
+
+        [Fact]
+        public void Start_reports_the_missing_runtime_naming_DOTNET_ROOT_when_neither_location_has_it()
+        {
+            var customRoot = Path.Combine(_root, "custom-dotnet");
+            Directory.CreateDirectory(customRoot);
+            var layout = new InstallLayout(_layout.AppData, _layout.LocalAppData, _layout.SkillsDir, _layout.BundleRoot,
+                InstallLayout.DotnetRootCandidates(customRoot, Path.Combine(_root, "program-files")));
+            var control = new WatcherControl(layout, _ => null, _ => throw new InvalidOperationException("must not spawn"));
+
+            var result = control.Start();
+
+            Assert.False(result.Ok);
+            Assert.Contains(customRoot, result.Message);
+        }
+
+        [Fact]
+        public void DotnetRootCandidates_lists_DOTNET_ROOT_before_Program_Files_and_skips_an_unset_value()
+        {
+            Assert.Equal(new[] { @"D:\sdk", Path.Combine(@"C:\pf", "dotnet") }, InstallLayout.DotnetRootCandidates(@"D:\sdk", @"C:\pf"));
+            Assert.Equal(new[] { Path.Combine(@"C:\pf", "dotnet") }, InstallLayout.DotnetRootCandidates(null, @"C:\pf"));
+            Assert.Equal(new[] { Path.Combine(@"C:\pf", "dotnet") }, InstallLayout.DotnetRootCandidates("  ", @"C:\pf"));
+            Assert.Single(InstallLayout.DotnetRootCandidates(Path.Combine(@"C:\pf", "DOTNET"), @"C:\pf"));
+        }
+
+        [Fact]
         public void Start_accepts_a_newer_patch_of_the_same_major_runtime()
         {
             var control = new WatcherControl(_layout, pid => pid == 9 ? WatcherName : null, _ => { WritePid(9); return 9; });

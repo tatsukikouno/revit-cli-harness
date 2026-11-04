@@ -3,18 +3,7 @@
     <OutputType>Library</OutputType>
     <Configurations>Debug R24;Release R24;Debug R25;Release R25;Debug R26;Release R26;Debug R27;Release R27</Configurations>
 
-    <!-- Which Revit year this Configuration targets. Falls back to R24 for a plain "Debug"/"Release"
-         Configuration (e.g. when this project is built as a dependency of another project that
-         doesn't carry an R24/R25/R26 suffix, such as a direct `dotnet build` of RevitHarness.Cli). -->
-    <RevitYearSuffix Condition="$(Configuration.EndsWith('R24'))">R24</RevitYearSuffix>
-    <RevitYearSuffix Condition="$(Configuration.EndsWith('R25'))">R25</RevitYearSuffix>
-    <RevitYearSuffix Condition="$(Configuration.EndsWith('R26'))">R26</RevitYearSuffix>
-    <RevitYearSuffix Condition="$(Configuration.EndsWith('R27'))">R27</RevitYearSuffix>
-    <RevitYearSuffix Condition="'$(RevitYearSuffix)'==''">R24</RevitYearSuffix>
-
-    <TargetFramework Condition="'$(RevitYearSuffix)'=='R24'">net48</TargetFramework>
-    <TargetFramework Condition="'$(RevitYearSuffix)'=='R25' Or '$(RevitYearSuffix)'=='R26'">net8.0-windows</TargetFramework>
-    <TargetFramework Condition="'$(RevitYearSuffix)'=='R27'">net10.0-windows</TargetFramework>
+    <!-- RevitYearSuffix and TargetFramework come from ..\RevitYear.props (imported by Directory.Build.props). -->
 
     <RootNamespace>RevitHarness.Addin</RootNamespace>
     <AssemblyName>RevitHarness.Addin</AssemblyName>
@@ -61,9 +50,6 @@
   <!-- Debug settings -->
   <PropertyGroup>
     <StartAction>Program</StartAction>
-    <StartProgram Condition="'$(RevitYearSuffix)'=='R24'">C:\Program Files\Autodesk\Revit 2024\Revit.exe</StartProgram>
-    <StartProgram Condition="'$(RevitYearSuffix)'=='R25'">C:\Program Files\Autodesk\Revit 2025\Revit.exe</StartProgram>
-    <StartProgram Condition="'$(RevitYearSuffix)'=='R26'">C:\Program Files\Autodesk\Revit 2026\Revit.exe</StartProgram>
-    <StartProgram Condition="'$(RevitYearSuffix)'=='R27'">C:\Program Files\Autodesk\Revit 2027\Revit.exe</StartProgram>
+    <StartProgram>C:\Program Files\Autodesk\Revit 20$(RevitYearSuffix.Substring(1))\Revit.exe</StartProgram>
   </PropertyGroup>
 </Project>

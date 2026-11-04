@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using RevitHarness.Dialogs;
@@ -38,8 +39,20 @@ namespace RevitHarness.Cli.Installation
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 skillsDir ?? Path.Combine(profile, ".claude", "skills"),
                 AppContext.BaseDirectory,
-                new[] { Environment.GetEnvironmentVariable("DOTNET_ROOT"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet") }
-                    .Where(root => !string.IsNullOrEmpty(root)).ToArray()!);
+                DotnetRootCandidates(Environment.GetEnvironmentVariable("DOTNET_ROOT"), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
+        }
+
+        /// <summary>
+        /// Where the .NET host looks for shared runtimes: DOTNET_ROOT first, then the default
+        /// Program Files install. The watcher pre-start check searches the same places the apphost does.
+        /// </summary>
+        public static string[] DotnetRootCandidates(string? dotnetRootEnv, string programFiles)
+        {
+            var roots = new List<string>();
+            if (!string.IsNullOrWhiteSpace(dotnetRootEnv))
+                roots.Add(dotnetRootEnv!.Trim());
+            roots.Add(Path.Combine(programFiles, "dotnet"));
+            return roots.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         }
 
         public string AddinsRoot => Path.Combine(AppData, "Autodesk", "Revit", "Addins");

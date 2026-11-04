@@ -1,0 +1,20 @@
+<Project>
+  <!-- Single definition of the Revit-year build matrix, imported by every project that builds once per
+       Revit year (Addin, Lookup). A Configuration ending in R24/R25/R26/R27 selects the year; a plain
+       Debug/Release (for example a direct `dotnet build` of RevitHarness.Cli) selects R24. -->
+  <PropertyGroup>
+    <RevitYearSuffix Condition="$(Configuration.EndsWith('R25'))">R25</RevitYearSuffix>
+    <RevitYearSuffix Condition="$(Configuration.EndsWith('R26'))">R26</RevitYearSuffix>
+    <RevitYearSuffix Condition="$(Configuration.EndsWith('R27'))">R27</RevitYearSuffix>
+    <RevitYearSuffix Condition="'$(RevitYearSuffix)'==''">R24</RevitYearSuffix>
+
+    <TargetFramework Condition="'$(RevitYearSuffix)'=='R24'">net48</TargetFramework>
+    <TargetFramework Condition="'$(RevitYearSuffix)'=='R25' Or '$(RevitYearSuffix)'=='R26'">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(RevitYearSuffix)'=='R27'">net10.0-windows</TargetFramework>
+
+    <!-- One intermediate directory per Revit year. The years target different frameworks, and a shared
+         obj\project.assets.json is read stale when two years build in one MSBuild process (as
+         RevitHarness.Cli does when it bundles all years). -->
+    <BaseIntermediateOutputPath>obj\$(RevitYearSuffix)\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

@@ -29,7 +29,9 @@ namespace RevitHarness.Addin
         {
             try
             {
+#if NET48
                 BundledDependencyResolver.Install();
+#endif
                 InitializeLogging();
                 Log("RevitHarness add-in starting...");
 
@@ -96,7 +98,9 @@ namespace RevitHarness.Addin
 
                 _dialogHooks?.Unsubscribe();
                 _dialogHooks = null;
+#if NET48
                 BundledDependencyResolver.Uninstall();
+#endif
 
                 // Stop processing timer
                 _processingTimer?.Dispose();

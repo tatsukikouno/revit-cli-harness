@@ -11,13 +11,12 @@ namespace RevitHarness.DialogWatcher
         public bool DryRun { get; set; }
         public bool SelfTest { get; set; }
         public int? Pid { get; set; }
-        public string? AllowlistPath { get; set; }
-        // Treated like LOCALAPPDATA: records land in <LogDir>\RevitHarness\dialogs.
-        public string? LogDir { get; set; }
+        // Test seam for --selftest only; treated like LOCALAPPDATA. Never read from the command line.
+        public string? BaseDirectory { get; set; }
         public ISet<int> ExtraPids { get; } = new HashSet<int>();
         public int PollMilliseconds { get; set; } = 300;
 
-        public string DialogsDirectory => DialogPaths.GetDirectory(LogDir);
+        public string DialogsDirectory => DialogPaths.GetDirectory(BaseDirectory);
         public string DumpsDirectory => Path.Combine(DialogsDirectory, "dumps");
         public string ScreenshotsDirectory => Path.Combine(DialogsDirectory, "screenshots");
         public string StopFilePath => Path.Combine(DialogsDirectory, "watcher.stop");
@@ -37,8 +36,6 @@ namespace RevitHarness.DialogWatcher
                         if (!int.TryParse(Next(args, ref i), out var pid)) throw new ArgumentException("--pid needs an integer");
                         o.Pid = pid;
                         break;
-                    case "--allowlist": o.AllowlistPath = Path.GetFullPath(Next(args, ref i)); break;
-                    case "--log-dir": o.LogDir = Path.GetFullPath(Next(args, ref i)); break;
                     default: throw new ArgumentException("unknown argument: " + args[i]);
                 }
             }

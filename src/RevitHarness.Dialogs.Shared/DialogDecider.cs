@@ -28,14 +28,12 @@ namespace RevitHarness.Dialogs
     public sealed class DialogDecider
     {
         private readonly string? baseDirectory;
-        private readonly string? allowlistPath;
         private readonly DialogLogger logger;
         private readonly DecisionContext context;
         private readonly PendingStore pendingStore;
 
-        public DialogDecider(DecisionContext? context = null, string? baseDirectory = null, string? allowlistPath = null)
+        public DialogDecider(DecisionContext? context = null, string? baseDirectory = null)
         {
-            this.allowlistPath = allowlistPath;
             this.context = context ?? new DecisionContext();
             this.baseDirectory = baseDirectory;
             logger = new DialogLogger(baseDirectory);
@@ -52,9 +50,10 @@ namespace RevitHarness.Dialogs
             var decision = new DialogDecision { Record = record };
             try
             {
-                var rules = AllowlistLoader.Load(baseDirectory, null, allowlistPath).Rules;
-                var rule = DialogMatcher.FindFirstMatch(rules, dialog, source);
+                var rules = AllowlistLoader.Load(baseDirectory).Rules;
+                var rule = DialogMatcher.FindDecisionRule(rules, dialog, source);
                 record.MatchedRuleId = rule?.Id ?? "unknown";
+                string reason;
                 if (rule != null && !rule.NoLearn)
                 {
                     record.DecidedBy = "rule";
@@ -62,11 +61,11 @@ namespace RevitHarness.Dialogs
                         rule.Action.ResultCode);
                     var hasCode = !string.IsNullOrEmpty(rule.Action.ResultCode);
                     record.ActionTaken = decision.Button != null ? "button" : hasCode ? "resultCode:" + rule.Action.ResultCode : "none";
-                    if (!decision.ShouldPress) record.Note = "rule action not applicable to this dialog";
-                    return Finish(decision);
+                    if (decision.ShouldPress) return Finish(decision);
+                    reason = "rule " + rule.Id + " matched but its action does not apply to this dialog";
                 }
+                else reason = rule != null ? "matched noLearn rule " + rule.Id : "no matching rule";
 
-                var reason = rule != null ? "matched noLearn rule " + rule.Id : "no matching rule";
                 if (AddInInfo.IsUnsignedAddInDialog(dialog))
                     reason += "; unsigned add-in not on the known list: " + string.Join(", ", AddInInfo.Extract(dialog));
                 var pending = pendingStore.Register(PendingStore.From(dialog, source, dialogPid ?? context.Pid, hwnd, screenshotPath,

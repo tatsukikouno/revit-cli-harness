@@ -30,9 +30,9 @@ namespace RevitHarness.DialogWatcher
         public DialogWatcher(WatcherOptions options)
         {
             this.options = options;
-            decider = new DialogDecider(null, options.LogDir, options.AllowlistPath);
-            logger = new DialogLogger(options.LogDir);
-            pending = new PendingStore(options.LogDir);
+            decider = new DialogDecider(null, options.BaseDirectory);
+            logger = new DialogLogger(options.BaseDirectory);
+            pending = new PendingStore(options.BaseDirectory);
         }
 
         public void Run(CancellationToken cancel)
@@ -55,6 +55,8 @@ namespace RevitHarness.DialogWatcher
         public void ScanOnce()
         {
             var candidates = FindCandidates();
+            if (candidates == null) return;
+            PruneClosedWindows(candidates);
             foreach (var window in candidates)
             {
                 try { Handle(window.Element, window.ProcessName, window.Pid); }
@@ -64,14 +66,25 @@ namespace RevitHarness.DialogWatcher
             catch (Exception exception) { Console.Error.WriteLine("pending processing failed: " + exception.Message); }
         }
 
+        // A window handle can be reused by a later dialog with the same text, and a process id by a later process.
+        // Only handles and ids that are still present stay remembered.
+        private void PruneClosedWindows(List<Candidate> candidates)
+        {
+            var hwnds = new HashSet<long>(candidates.Select(c => c.Element.Properties.NativeWindowHandle.ValueOrDefault.ToInt64()));
+            foreach (var gone in handled.Keys.Where(h => !hwnds.Contains(h)).ToList()) handled.Remove(gone);
+        }
+
         private static readonly TimeSpan StaleGrace = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan ApiEntryLifetime = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan ApplyingLifetime = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan InvokeTimeout = TimeSpan.FromSeconds(3);
 
         // Applies decisions requested through the CLI and marks pending dialogs whose window is gone as stale.
         private void ProcessPending(List<Candidate> candidates)
         {
             foreach (var entry in pending.List(true))
             {
+                if (options.Pid != null && entry.Pid != options.Pid) continue;
                 try { ProcessPendingEntry(entry, candidates); }
                 catch (Exception exception) { Console.Error.WriteLine("pending " + entry.Id + " failed: " + exception.Message); }
             }
@@ -82,6 +95,12 @@ namespace RevitHarness.DialogWatcher
             var window = entry.Hwnd == null ? null : candidates.FirstOrDefault(c =>
                 c.Pid == entry.Pid && c.Element.Properties.NativeWindowHandle.ValueOrDefault.ToInt64() == entry.Hwnd &&
                 c.Element.Name == entry.Title);
+            if (entry.Status == PendingStatus.Applying)
+            {
+                if (DateTimeOffset.UtcNow - entry.UpdatedAt > ApplyingLifetime)
+                    pending.MarkStale(entry.Id, "watcher stopped while applying the decision");
+                return;
+            }
             if (entry.Hwnd == null)
             {
                 if (DateTimeOffset.UtcNow - entry.CreatedAt > ApiEntryLifetime)
@@ -94,11 +113,13 @@ namespace RevitHarness.DialogWatcher
                     pending.MarkStale(entry.Id, "dialog closed before a decision was applied");
                 return;
             }
-            if (entry.Status == PendingStatus.DecisionRequested && entry.Decision != null) ApplyDecision(entry, window.Element);
+            if (entry.Status == PendingStatus.DecisionRequested && entry.Decision != null) ApplyDecision(entry, window);
         }
 
-        private void ApplyDecision(PendingDialog entry, AutomationElement window)
+        private void ApplyDecision(PendingDialog requested, Candidate window)
         {
+            var entry = pending.ClaimDecision(requested.Id);
+            if (entry == null) return;
             var button = entry.Decision!.Button;
             var shadow = new DialogDecision
             {
@@ -110,14 +131,14 @@ namespace RevitHarness.DialogWatcher
                 }
             };
             if (options.DryRun) { Note(shadow, "dry-run", "would press '" + button.Name + "' for pending " + entry.Id); pending.Complete(entry.Id, false, "dry-run"); return; }
-            var target = DialogCollector.FindButton(window, button);
+            var live = DialogCollector.Collect(window.Element, window.ProcessName);
+            if (entry.Key != null && !entry.Key.Equals(DialogKey.From(live)))
+            { pending.Complete(entry.Id, false, "the dialog changed after it was reviewed; not pressed"); return; }
+            var target = DialogCollector.FindButton(window.Element, button);
             if (target == null) { pending.Complete(entry.Id, false, "button not found in the live window"); return; }
             if (!target.Patterns.Invoke.IsSupported) { pending.Complete(entry.Id, false, "button does not support Invoke; not pressed"); return; }
-            var invoke = Task.Run(() => target.Patterns.Invoke.Pattern.Invoke());
-            string? error = null;
-            try { invoke.Wait(TimeSpan.FromSeconds(3)); }
-            catch (AggregateException e) { error = e.InnerException?.Message ?? e.Message; }
-            Observe(shadow, window, entry.Pid ?? 0, entry.Hwnd ?? 0, entry.Title);
+            var error = InvokeGuard.Run(() => target.Patterns.Invoke.Pattern.Invoke(), InvokeTimeout);
+            Observe(shadow, window.Element, entry.Pid ?? 0, entry.Hwnd ?? 0, entry.Title);
             pending.Complete(entry.Id, error == null, error);
         }
 
@@ -128,16 +149,18 @@ namespace RevitHarness.DialogWatcher
             public int Pid;
         }
 
-        private List<Candidate> FindCandidates()
+        private List<Candidate>? FindCandidates()
         {
             var result = new List<Candidate>();
             AutomationElement[] windows;
             try { windows = automation.GetDesktop().FindAllChildren(c => c.ByControlType(ControlType.Window)); }
-            catch (Exception ex) { Console.Error.WriteLine("desktop enumeration failed: " + ex); return result; }
+            catch (Exception ex) { Console.Error.WriteLine("desktop enumeration failed: " + ex); return null; }
+            var seenPids = new HashSet<int>();
             foreach (var w in windows)
             {
                 int pid;
                 try { pid = w.Properties.ProcessId.Value; } catch { continue; }
+                seenPids.Add(pid);
                 var name = ProcessName(pid);
                 if (name == null) continue;
                 var isReporter = ErrorReporterProcesses.Contains(name, StringComparer.OrdinalIgnoreCase);
@@ -151,6 +174,7 @@ namespace RevitHarness.DialogWatcher
                 }
                 result.Add(new Candidate { Element = w, ProcessName = name, Pid = pid });
             }
+            foreach (var gone in processNames.Keys.Where(p => !seenPids.Contains(p)).ToList()) processNames.Remove(gone);
             return result;
         }
 
@@ -184,7 +208,7 @@ namespace RevitHarness.DialogWatcher
 
         private string AllowlistStamp()
         {
-            try { return File.GetLastWriteTimeUtc(options.AllowlistPath ?? DialogPaths.GetAllowlistPath(options.LogDir)).Ticks.ToString(); }
+            try { return File.GetLastWriteTimeUtc(DialogPaths.GetAllowlistPath(options.BaseDirectory)).Ticks.ToString(); }
             catch { return string.Empty; }
         }
 
@@ -200,8 +224,8 @@ namespace RevitHarness.DialogWatcher
 
             var stamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmssfff") + "_" + pid + "_" + hwnd.ToString("x");
             var shot = Screenshot.Capture(new IntPtr(hwnd), options.ScreenshotsDirectory, stamp);
-            var known = DialogMatcher.FindFirstMatch(
-                AllowlistLoader.Load(options.LogDir, null, options.AllowlistPath).Rules, info, DialogSource.Watcher);
+            var known = DialogMatcher.FindDecisionRule(
+                AllowlistLoader.Load(options.BaseDirectory).Rules, info, DialogSource.Watcher);
             var dump = known != null && !known.NoLearn ? null : UiaDump.Write(window, options.DumpsDirectory, stamp);
 
             var decision = decider.Decide(info, DialogSource.Watcher, shot, dump, hwnd, pid);
@@ -212,10 +236,9 @@ namespace RevitHarness.DialogWatcher
             if (target == null) { Note(decision, "skipped", "button not found in the live window"); return; }
             if (!target.Patterns.Invoke.IsSupported) { Note(decision, "skipped", "button does not support Invoke; not pressed"); return; }
 
-            var invoke = Task.Run(() => target.Patterns.Invoke.Pattern.Invoke());
-            try { invoke.Wait(TimeSpan.FromSeconds(3)); }
-            catch (AggregateException e) { Note(decision, "invoke-error", e.InnerException?.Message ?? e.Message); }
-            pending.SupersedeApiEntries(pid, "watcher " + decision.Record.LogId);
+            var error = InvokeGuard.Run(() => target.Patterns.Invoke.Pattern.Invoke(), InvokeTimeout);
+            if (error != null) Note(decision, "invoke-error", error);
+            else pending.SupersedeApiEntries(pid, "watcher " + decision.Record.LogId);
             Observe(decision, window, pid, hwnd, info.Title);
         }
 
@@ -228,7 +251,7 @@ namespace RevitHarness.DialogWatcher
                 Thread.Sleep(150);
                 closed = !IsAlive(window);
             }
-            foreach (var c in FindCandidates().Where(c => c.Pid == pid))
+            foreach (var c in (FindCandidates() ?? new List<Candidate>()).Where(c => c.Pid == pid))
             {
                 var h = c.Element.Properties.NativeWindowHandle.ValueOrDefault.ToInt64();
                 var t = c.Element.Name;

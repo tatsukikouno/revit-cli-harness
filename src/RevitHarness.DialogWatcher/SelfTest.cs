@@ -15,8 +15,8 @@ namespace RevitHarness.DialogWatcher
 
         public static int Run(WatcherOptions baseOptions)
         {
-            var root = baseOptions.LogDir ?? Path.Combine(Path.GetTempPath(), "rhw-selftest-" + Guid.NewGuid().ToString("N").Substring(0, 8));
-            var ruleFile = Path.Combine(root, "selftest-allowlist.json");
+            var root = Path.Combine(Path.GetTempPath(), "rhw-selftest-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            var ruleFile = DialogPaths.GetAllowlistPath(root);
             var failures = 0;
             void Check(bool ok, string what) { Console.WriteLine((ok ? "PASS " : "FAIL ") + what); if (!ok) failures++; }
 
@@ -39,10 +39,10 @@ namespace RevitHarness.DialogWatcher
             thread.Start();
             if (!ready.Wait(10000)) { Console.WriteLine("FAIL fake dialog did not appear"); return 1; }
 
-            WatcherOptions Make() => new WatcherOptions { LogDir = root, AllowlistPath = ruleFile, Once = true };
+            WatcherOptions Make() => new WatcherOptions { BaseDirectory = root, Once = true };
             var pid = Environment.ProcessId;
 
-            Directory.CreateDirectory(root);
+            Directory.CreateDirectory(Path.GetDirectoryName(ruleFile)!);
             File.WriteAllText(ruleFile, "{\"version\":1,\"rules\":[]}");
             var a = Make();
             a.ExtraPids.Add(pid);

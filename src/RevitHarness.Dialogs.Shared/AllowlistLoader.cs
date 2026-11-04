@@ -19,11 +19,11 @@ namespace RevitHarness.Dialogs
 
     public static class AllowlistLoader
     {
-        public static AllowlistLoadResult Load(string? baseDirectory = null, Action<string>? reportError = null, string? allowlistPath = null)
+        public static AllowlistLoadResult Load(string? baseDirectory = null, Action<string>? reportError = null)
         {
             try
             {
-                using var stream = new FileStream(allowlistPath ?? DialogPaths.GetAllowlistPath(baseDirectory),
+                using var stream = new FileStream(DialogPaths.GetAllowlistPath(baseDirectory),
                     FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 var file = JsonSerializer.Deserialize<AllowlistFile>(stream);
                 if (file == null) throw new JsonException("The allowlist must be a JSON object.");

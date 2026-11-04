@@ -39,30 +39,32 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public void NonexistentButtonIsRejectedAndNothingIsQueued()
         {
             var id = Register(Dialog());
-            var result = Store.RequestDecision(id, "Delete everything", null, "agent-x", false, false);
+            var result = Store.RequestDecision(id, "Delete everything", null, "agent-x", false);
             Assert.False(result.Ok);
             Assert.Contains("button not in dialog", result.Error);
             Assert.Equal(PendingStatus.Pending, Store.Get(id)!.Status);
-            Assert.False(Store.RequestDecision(id, "OK", "CommandButton_1001", "agent-x", false, false).Ok);
-            Assert.False(Store.RequestDecision(id, null, "nope", "agent-x", false, false).Ok);
+            Assert.False(Store.RequestDecision(id, "OK", "CommandButton_1001", "agent-x", false).Ok);
+            Assert.False(Store.RequestDecision(id, null, "nope", "agent-x", false).Ok);
         }
 
         [Fact]
         public void DeciderNameIsRequired()
         {
             var id = Register(Dialog());
-            Assert.False(Store.RequestDecision(id, "OK", null, " ", false, false).Ok);
-            Assert.False(Store.RequestDecision(id, "OK", null, null, false, false).Ok);
+            Assert.False(Store.RequestDecision(id, "OK", null, " ", false).Ok);
+            Assert.False(Store.RequestDecision(id, "OK", null, null, false).Ok);
         }
 
         [Fact]
         public void ValidDecisionIsQueuedThenCompletedAndLoggedAsExternal()
         {
             var id = Register(Dialog());
-            var request = Store.RequestDecision(id, "OK", "CommandButton_1", "model-y", false, false);
+            var request = Store.RequestDecision(id, "OK", "CommandButton_1", "model-y", false);
             Assert.True(request.Ok);
             Assert.Equal(PendingStatus.DecisionRequested, Store.Get(id)!.Status);
-            Assert.False(Store.RequestDecision(id, "OK", null, "model-y", false, false).Ok);
+            Assert.False(Store.RequestDecision(id, "OK", null, "model-y", false).Ok);
+
+            Store.ClaimDecision(id);
 
             var done = Store.Complete(id, true)!;
             Assert.Equal(PendingStatus.Resolved, done.Status);
@@ -80,7 +82,8 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public void SaveRuleKeepsReversibleButtonAndLaterDialogMatchesWithoutPending()
         {
             var id = Register(Dialog());
-            Assert.True(Store.RequestDecision(id, "OK", null, "model-y", saveRule: true, force: false).Ok);
+            Assert.True(Store.RequestDecision(id, "OK", null, "model-y", saveRule: true).Ok);
+            Store.ClaimDecision(id);
             var done = Store.Complete(id, true)!;
             var rule = Assert.Single(Rules());
             Assert.Equal(done.Resolution!.RuleId, rule.Id);
@@ -92,23 +95,27 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
-        public void IrreversibleButtonIsNotSavedUnlessForced()
+        public void IrreversibleButtonIsPressedButNeverLearned()
         {
             var id = Register(Dialog());
-            Assert.True(Store.RequestDecision(id, "Overwrite", null, "m", saveRule: true, force: false).Ok);
+            Assert.True(Store.RequestDecision(id, "Overwrite", null, "m", saveRule: true).Ok);
+            Store.ClaimDecision(id);
             var done = Store.Complete(id, true)!;
             Assert.Equal(PendingStatus.Resolved, done.Status);
             Assert.Empty(Rules());
-            Assert.Contains("--force", done.Resolution!.RuleNotSavedReason);
-
-            var other = Register(Dialog(text: "Another body"), hwnd: 11);
-            Assert.True(Store.RequestDecision(other, "Overwrite", null, "m", saveRule: true, force: true).Ok);
-            Store.Complete(other, true);
-            Assert.Single(Rules());
+            Assert.Contains("not known to be reversible", done.Resolution!.RuleNotSavedReason);
+            Assert.DoesNotContain("--force", done.Resolution.RuleNotSavedReason);
         }
 
         [Fact]
-        public void NoLearnRuleBlocksSavingEvenWhenForced()
+        public void DecisionRequestHasNoForceOverride()
+        {
+            Assert.Null(typeof(PendingDecisionRequest).GetProperty("Force"));
+            Assert.DoesNotContain(typeof(PendingStore).GetMethod(nameof(PendingStore.RequestDecision))!.GetParameters(), p => p.Name == "force");
+        }
+
+        [Fact]
+        public void NoLearnRuleBlocksSaving()
         {
             Assert.True(AllowlistStore.TryAddRule(new AllowRule
             {
@@ -117,7 +124,8 @@ namespace RevitHarness.Dialogs.Shared.Tests
                 Action = new DialogAction { ButtonName = "OK" }
             }, directory));
             var id = Register(Dialog());
-            Assert.True(Store.RequestDecision(id, "OK", null, "m", saveRule: true, force: true).Ok);
+            Assert.True(Store.RequestDecision(id, "OK", null, "m", saveRule: true).Ok);
+            Store.ClaimDecision(id);
             var done = Store.Complete(id, true)!;
             Assert.Equal(PendingStatus.Resolved, done.Status);
             Assert.Contains("noLearn", done.Resolution!.RuleNotSavedReason);
@@ -130,7 +138,8 @@ namespace RevitHarness.Dialogs.Shared.Tests
             var dialog = Dialog("Security - Unsigned Add-in", "Name: UnknownAddin\nPath: C:\\Temp\\UnknownAddin.dll",
                 ("Always Load", "CommandButton_1001"), ("Load Once", "CommandButton_1002"), ("Do Not Load", "CommandButton_1003"));
             var id = Register(dialog);
-            Assert.True(Store.RequestDecision(id, "Always Load", null, "m", saveRule: true, force: true).Ok);
+            Assert.True(Store.RequestDecision(id, "Always Load", null, "m", saveRule: true).Ok);
+            Store.ClaimDecision(id);
             var done = Store.Complete(id, true)!;
             Assert.Contains("security dialog", done.Resolution!.RuleNotSavedReason);
             Assert.Empty(Rules());
@@ -140,7 +149,8 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public void FailedPressDoesNotSaveRuleAndMarksFailed()
         {
             var id = Register(Dialog());
-            Store.RequestDecision(id, "OK", null, "m", saveRule: true, force: false);
+            Store.RequestDecision(id, "OK", null, "m", saveRule: true);
+            Store.ClaimDecision(id);
             var done = Store.Complete(id, false, "button not found in the live window")!;
             Assert.Equal(PendingStatus.Failed, done.Status);
             Assert.Empty(Rules());
@@ -151,7 +161,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
         {
             var id = Register(Dialog());
             Store.MarkStale(id, "dialog closed before a decision was applied");
-            var result = Store.RequestDecision(id, "OK", null, "m", false, false);
+            var result = Store.RequestDecision(id, "OK", null, "m", false);
             Assert.False(result.Ok);
             Assert.Contains("stale", result.Error);
             Assert.Empty(Store.List(true));
@@ -162,19 +172,92 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public void RequestedDecisionForVanishedDialogBecomesStaleAndClearsRequest()
         {
             var id = Register(Dialog());
-            Store.RequestDecision(id, "OK", null, "m", false, false);
-            var marked = Store.MarkStaleWhere(p => "gone");
-            Assert.Equal(id, Assert.Single(marked).Id);
+            Store.RequestDecision(id, "OK", null, "m", false);
+            Store.MarkStale(id, "gone");
             var stored = Store.Get(id)!;
             Assert.Equal(PendingStatus.Stale, stored.Status);
             Assert.Null(stored.Decision);
         }
 
         [Fact]
+        public void WithdrawAfterClaimIsRefusedAndCompleteKeepsLogAndResult()
+        {
+            var id = Register(Dialog());
+            Store.RequestDecision(id, "OK", null, "model-a", saveRule: true);
+            Assert.NotNull(Store.ClaimDecision(id));
+
+            Assert.False(Store.TryWithdrawRequest(id));
+            Assert.Equal(PendingStatus.Applying, Store.Get(id)!.Status);
+            Assert.False(Store.RequestDecision(id, "Overwrite", null, "model-b", saveRule: true).Ok);
+
+            var done = Store.Complete(id, true)!;
+            Assert.Equal(PendingStatus.Resolved, done.Status);
+            Assert.Equal("OK", done.Resolution!.PressedButton!.Name);
+            Assert.Equal("model-a", done.Resolution.By);
+            var line = File.ReadAllLines(Directory.GetFiles(DialogPaths.GetDirectory(directory), "dialogs_*.jsonl").Single()).Last();
+            var root = JsonDocument.Parse(line).RootElement;
+            Assert.Equal("model-a", root.GetProperty("deciderName").GetString());
+            Assert.Equal("OK", root.GetProperty("pressedButton").GetProperty("name").GetString());
+            Assert.Equal("learned-", Assert.Single(Rules()).Id.Substring(0, 8));
+        }
+
+        [Fact]
+        public void WithdrawBeforeClaimStopsThePress()
+        {
+            var id = Register(Dialog());
+            Store.RequestDecision(id, "OK", null, "m", false);
+            Assert.True(Store.TryWithdrawRequest(id));
+            Assert.Null(Store.ClaimDecision(id));
+            Assert.Equal(PendingStatus.Pending, Store.Get(id)!.Status);
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task WaitDoesNotWithdrawAClaimedRequestAndReportsItsResult()
+        {
+            var id = Register(Dialog());
+            Store.RequestDecision(id, "OK", null, "m", false);
+            Store.ClaimDecision(id);
+            var finisher = System.Threading.Tasks.Task.Run(() => { System.Threading.Thread.Sleep(200); Store.Complete(id, true); });
+            var result = Store.WaitForResolution(id, TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(20), TimeSpan.FromSeconds(5));
+            await finisher;
+            Assert.Equal(PendingStatus.Resolved, result!.Status);
+        }
+
+        [Fact]
+        public void InvokeTimeoutIsNotAPressAndLearnsNothing()
+        {
+            var id = Register(Dialog());
+            Store.RequestDecision(id, "OK", null, "m", saveRule: true);
+            Store.ClaimDecision(id);
+            var error = InvokeGuard.Run(() => System.Threading.Thread.Sleep(2000), TimeSpan.FromMilliseconds(50));
+            Assert.NotNull(error);
+            var done = Store.Complete(id, error == null, error)!;
+            Assert.Equal(PendingStatus.Failed, done.Status);
+            Assert.Null(done.Resolution!.PressedButton);
+            Assert.Empty(Rules());
+        }
+
+        [Fact]
+        public void InvokeGuardReportsCompletionAndExceptions()
+        {
+            Assert.Null(InvokeGuard.Run(() => { }, TimeSpan.FromSeconds(5)));
+            Assert.Equal("boom", InvokeGuard.Run(() => throw new InvalidOperationException("boom"), TimeSpan.FromSeconds(5)));
+        }
+
+        [Fact]
+        public void CompleteWithoutClaimDoesNothing()
+        {
+            var id = Register(Dialog());
+            Store.RequestDecision(id, "OK", null, "m", saveRule: true);
+            Assert.Equal(PendingStatus.DecisionRequested, Store.Complete(id, true)!.Status);
+            Assert.Empty(Rules());
+        }
+
+        [Fact]
         public void WaitTimesOutAndWithdrawsRequestSoItCannotFireLater()
         {
             var id = Register(Dialog());
-            Store.RequestDecision(id, "OK", null, "m", false, false);
+            Store.RequestDecision(id, "OK", null, "m", false);
             Assert.Null(Store.WaitForResolution(id, TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(20)));
             var stored = Store.Get(id)!;
             Assert.Equal(PendingStatus.Pending, stored.Status);
@@ -185,8 +268,8 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public async System.Threading.Tasks.Task WaitReturnsOnceWatcherCompletes()
         {
             var id = Register(Dialog());
-            Store.RequestDecision(id, "OK", null, "m", false, false);
-            var watcher = System.Threading.Tasks.Task.Run(() => { System.Threading.Thread.Sleep(80); Store.Complete(id, true); });
+            Store.RequestDecision(id, "OK", null, "m", false);
+            var watcher = System.Threading.Tasks.Task.Run(() => { System.Threading.Thread.Sleep(80); Store.ClaimDecision(id); Store.Complete(id, true); });
             var result = Store.WaitForResolution(id, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(20));
             await watcher;
             Assert.Equal(PendingStatus.Resolved, result!.Status);
@@ -216,7 +299,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public void ApiEntryWithoutWindowCannotBeDecided()
         {
             var api = Store.Register(PendingStore.From(Dialog(), DialogSource.Api, 7, null, null, null, null, null, "t"));
-            Assert.Contains("no window handle", Store.RequestDecision(api.Id, "OK", null, "m", false, false).Error);
+            Assert.Contains("no window handle", Store.RequestDecision(api.Id, "OK", null, "m", false).Error);
         }
 
         [Fact]
@@ -379,12 +462,131 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public void SampleAllowlistInRepositoryParsesAndKnownAddInMatches()
         {
             var path = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "samples", "allowlist.sample.json");
-            var loaded = AllowlistLoader.Load(null, null, Path.GetFullPath(path));
-            Assert.Null(loaded.Error);
-            var rule = Assert.Single(loaded.Rules, r => r.Match.AddIn != null);
+            var file = JsonSerializer.Deserialize<AllowlistFile>(File.ReadAllText(Path.GetFullPath(path)))!;
+            var rule = Assert.Single(file.Rules, r => r.Match.AddIn != null);
             Assert.Equal("Load Once", rule.Action.ButtonName);
             Assert.Same(rule, DialogMatcher.FindFirstMatch(new[] { rule }, Security("Contoso.Tools"), DialogSource.Watcher));
             Assert.Null(DialogMatcher.FindFirstMatch(new[] { rule }, Security("OtherAddin"), DialogSource.Watcher));
+        }
+    }
+
+    public sealed class ReviewFixTests : IDisposable
+    {
+        private readonly string directory = Path.Combine(Path.GetTempPath(), "RevitHarness.Tests", Guid.NewGuid().ToString("N"));
+
+        public void Dispose()
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+
+        private static DialogInfo Plain(string title = "Warning") => new DialogInfo
+        {
+            Title = title, Text = "Name: Contoso.Tools\nPath: C:\\Addins\\Contoso.Tools.dll", AutomationId = "TaskDialog",
+            ButtonDetails = { new DialogButton { Name = "OK", AutomationId = "CommandButton_1" } }
+        };
+
+        private static AllowRule AddInRule(string addIn) => new AllowRule
+        {
+            Id = "addin-" + addIn, Target = DialogTarget.Both,
+            Match = new DialogMatch { AddIn = addIn },
+            Action = new DialogAction { ButtonName = "OK" }
+        };
+
+        [Theory]
+        [InlineData("*")]
+        [InlineData("Contoso.*")]
+        [InlineData("Contoso.Tools")]
+        [InlineData("C:\\Addins\\*")]
+        public void AddInRuleNeverMatchesAnOrdinaryDialog(string addIn)
+        {
+            Assert.Null(DialogMatcher.FindFirstMatch(new[] { AddInRule(addIn) }, Plain(), DialogSource.Watcher));
+            var decision = new DialogDecider(new DecisionContext(), directory);
+            Assert.True(AllowlistStore.TryAddRule(AddInRule(addIn), directory));
+            var result = decision.Decide(Plain(), DialogSource.Watcher, hwnd: 5, dialogPid: 3);
+            Assert.False(result.ShouldPress);
+            Assert.Equal("pending", result.Record.DecidedBy);
+        }
+
+        [Fact]
+        public void LoneStarStillMatchesAnUnsignedAddInDialog()
+        {
+            var security = Plain("Security - Unsigned Add-in");
+            Assert.NotNull(DialogMatcher.FindFirstMatch(new[] { AddInRule("*") }, security, DialogSource.Watcher));
+        }
+
+        [Fact]
+        public void SelfDeclaredNameCannotSatisfyAPathCondition()
+        {
+            var evil = Plain("Security - Unsigned Add-in");
+            evil.Text = "Name: C:\\Addins\\Sample\\x\nPath: D:\\evil\\x.dll";
+            Assert.Null(DialogMatcher.FindFirstMatch(new[] { AddInRule("C:\\Addins\\Sample\\*") }, evil, DialogSource.Watcher));
+            Assert.NotNull(DialogMatcher.FindFirstMatch(new[] { AddInRule("D:\\evil\\*") }, evil, DialogSource.Watcher));
+        }
+
+        private static AllowRule TitleRule(string id, bool noLearn) => new AllowRule
+        {
+            Id = id, Target = DialogTarget.Both, NoLearn = noLearn,
+            Match = new DialogMatch { Title = new TextPattern { Value = "Warning", Mode = TextPatternMode.Equals } },
+            Action = new DialogAction { ButtonName = "OK" }
+        };
+
+        [Fact]
+        public void NoLearnRuleWinsOverAnEarlierRuleSoTheDialogStaysPending()
+        {
+            Assert.True(AllowlistStore.TryAddRule(TitleRule("broad", false), directory));
+            Assert.True(AllowlistStore.TryAddRule(TitleRule("tester", true), directory));
+            var result = new DialogDecider(new DecisionContext(), directory).Decide(Plain(), DialogSource.Watcher, hwnd: 5, dialogPid: 3);
+            Assert.False(result.ShouldPress);
+            Assert.Equal("pending", result.Record.DecidedBy);
+            Assert.Contains("tester", result.Record.Note);
+        }
+
+        [Fact]
+        public void MatchedRuleWhoseButtonIsMissingLeavesTheDialogPending()
+        {
+            var rule = TitleRule("wants-yes", false);
+            rule.Action = new DialogAction { ButtonName = "Yes" };
+            Assert.True(AllowlistStore.TryAddRule(rule, directory));
+            var result = new DialogDecider(new DecisionContext(), directory).Decide(Plain(), DialogSource.Watcher, hwnd: 5, dialogPid: 3);
+            Assert.False(result.ShouldPress);
+            Assert.Equal("pending", result.Record.DecidedBy);
+            Assert.NotNull(result.PendingId);
+            Assert.Contains("does not apply", result.Record.Note);
+        }
+
+        private static DialogInfo Failure(string guid) => new DialogInfo
+        {
+            Source = DialogSource.Api, DialogId = "failure:" + guid, Title = "Revit warning", Text = "x", ProcessName = "Revit"
+        };
+
+        private static AllowRule FailureRule(string id, string guid, bool noLearn) => new AllowRule
+        {
+            Id = id, Target = DialogTarget.Api, NoLearn = noLearn,
+            Match = new DialogMatch { DialogId = new TextPattern { Value = "failure:" + guid, Mode = TextPatternMode.Equals } },
+            Action = new DialogAction { ButtonName = "OK" }
+        };
+
+        [Fact]
+        public void WarningIsDeletedOnlyByANonNoLearnRule()
+        {
+            var g = Guid.NewGuid().ToString("D");
+            Assert.Equal("del", DialogMatcher.FindWarningDeleteRule(new[] { FailureRule("del", g, false) }, Failure(g))!.Id);
+            Assert.Null(DialogMatcher.FindWarningDeleteRule(new[] { FailureRule("keep", g, true) }, Failure(g)));
+            Assert.Null(DialogMatcher.FindWarningDeleteRule(new[] { FailureRule("del", g, false), FailureRule("keep", g, true) }, Failure(g)));
+            Assert.Null(DialogMatcher.FindWarningDeleteRule(new[] { TitleRule("title-only", false) }, Failure(g)));
+        }
+
+        [Fact]
+        public void EmptyPatternValueNeverMatchesAndModeDefaultsToEquals()
+        {
+            var empty = TitleRule("empty", false);
+            empty.Match.Title = new TextPattern { Value = "" };
+            Assert.Null(DialogMatcher.FindFirstMatch(new[] { empty }, Plain(), DialogSource.Watcher));
+            var json = JsonSerializer.Deserialize<TextPattern>("{\"value\":\"War\"}")!;
+            Assert.Equal(TextPatternMode.Equals, json.Mode);
+            var partial = TitleRule("partial", false);
+            partial.Match.Title = json;
+            Assert.Null(DialogMatcher.FindFirstMatch(new[] { partial }, Plain(), DialogSource.Watcher));
         }
     }
 }

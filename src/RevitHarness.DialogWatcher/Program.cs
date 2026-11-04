@@ -7,7 +7,7 @@ namespace RevitHarness.DialogWatcher
 {
     public static class Program
     {
-        private const string MutexName = @"Global\RevitHarness.DialogWatcher";
+        private const string MutexName = @"Local\RevitHarness.DialogWatcher";
 
         public static int Main(string[] args)
         {
@@ -16,7 +16,7 @@ namespace RevitHarness.DialogWatcher
             catch (ArgumentException e)
             {
                 Console.Error.WriteLine(e.Message);
-                Console.Error.WriteLine("usage: RevitHarness.DialogWatcher [--once] [--dry-run] [--pid <n>] [--allowlist <path>] [--log-dir <dir>] [--selftest]");
+                Console.Error.WriteLine("usage: RevitHarness.DialogWatcher [--once] [--dry-run] [--pid <n>] [--selftest]");
                 return 2;
             }
 

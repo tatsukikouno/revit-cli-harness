@@ -10,14 +10,12 @@
 param(
     [Parameter(Mandatory = $true, Position = 0)][ValidateSet('start', 'stop', 'status', 'tail-log')][string]$Command,
     [string]$Exe,
-    [string]$LogDir,
-    [string]$WatcherArgs = '',
+    [string[]]$WatcherArgs = @(),
     [int]$Lines = 20,
     [switch]$Follow
 )
 $ErrorActionPreference = 'Stop'
-$root = if ($LogDir) { $LogDir } else { $env:LOCALAPPDATA }
-$dialogs = Join-Path $root 'RevitHarness\dialogs'
+$dialogs = Join-Path $env:LOCALAPPDATA 'RevitHarness\dialogs'
 $pidFile = Join-Path $dialogs 'watcher.pid'
 $stopFile = Join-Path $dialogs 'watcher.stop'
 
@@ -45,8 +43,7 @@ switch ($Command) {
         if (Get-WatcherProcess) { Write-Output 'already running'; exit 0 }
         $exePath = Find-Exe
         $argList = @()
-        if ($LogDir) { $argList += @('--log-dir', $LogDir) }
-        if ($WatcherArgs) { $argList += $WatcherArgs.Split(' ', [StringSplitOptions]::RemoveEmptyEntries) }
+        if ($WatcherArgs) { $argList += $WatcherArgs }
         $startArgs = @{ FilePath = $exePath; WindowStyle = 'Hidden'; PassThru = $true }
         if ($argList.Count -gt 0) { $startArgs.ArgumentList = $argList }
         $p = Start-Process @startArgs

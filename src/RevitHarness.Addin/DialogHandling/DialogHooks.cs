@@ -62,11 +62,11 @@ namespace RevitHarness.Addin.DialogHandling
                 var decider = new DialogDecider(DialogRuntime.NewContext());
 
                 string? screenshot = null;
-                var known = DialogMatcher.FindFirstMatch(AllowlistLoader.Load().Rules, info, DialogSource.Api) != null;
+                var known = DialogMatcher.FindDecisionRule(AllowlistLoader.Load().Rules, info, DialogSource.Api) is { NoLearn: false };
                 if (!known) screenshot = RevitWindowCapture.Capture(DialogPaths.GetDirectory(), Guid.NewGuid().ToString("N").Substring(0, 8));
 
                 var decision = decider.Decide(info, DialogSource.Api, screenshot);
-                if (decision.ShouldPress && DialogInfoBuilder.TryGetResultCode(decision, out var code))
+                if (decision.ShouldPress && DialogInfoBuilder.TryGetResultCode(decision, out var code) && DialogInfoBuilder.IsOffered(info, code))
                     e.OverrideResult(code);
             }
             catch (Exception ex)
@@ -104,7 +104,7 @@ namespace RevitHarness.Addin.DialogHandling
                     if (severity == FailureSeverity.Warning)
                     {
                         // Warnings are matched by failure id only, so a text-only dialog rule never deletes a warning.
-                        var rule = DialogMatcher.FindFirstMatch(rules.Where(r => r.Match?.DialogId != null), info, DialogSource.Api);
+                        var rule = DialogMatcher.FindWarningDeleteRule(rules, info);
                         if (rule != null)
                         {
                             accessor.DeleteWarning(message);

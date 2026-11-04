@@ -67,5 +67,15 @@ namespace RevitHarness.Dialogs.Shared.Tests
             }
             finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
         }
+
+        [Fact]
+        public void ResultCodeIsOnlyOfferedWhenTheDialogReportsThatButton()
+        {
+            var box = DialogInfoBuilder.ForMessageBox("id", "text", 1);
+            Assert.True(DialogInfoBuilder.IsOffered(box, 1));
+            Assert.True(DialogInfoBuilder.IsOffered(box, 2));
+            Assert.False(DialogInfoBuilder.IsOffered(box, 6));
+            Assert.True(DialogInfoBuilder.IsOffered(DialogInfoBuilder.ForTaskDialog("id", "text"), 1001));
+        }
     }
 }

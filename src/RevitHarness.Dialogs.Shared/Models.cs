@@ -78,7 +78,7 @@ namespace RevitHarness.Dialogs
         [JsonPropertyName("value")]
         public string Value { get; set; } = string.Empty;
         [JsonPropertyName("mode")]
-        public TextPatternMode Mode { get; set; }
+        public TextPatternMode Mode { get; set; } = TextPatternMode.Equals;
         [JsonPropertyName("ignoreCase")]
         public bool IgnoreCase { get; set; } = true;
     }

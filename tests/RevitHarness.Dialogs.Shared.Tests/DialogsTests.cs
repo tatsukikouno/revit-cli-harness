@@ -136,8 +136,8 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public void ConditionsAreAndedAndEmptyMatchNeverMatches()
         {
             var rule = Rule();
-            rule.Match.DialogId = new TextPattern { Value = "confirm" };
-            rule.Match.Text = new TextPattern { Value = "save" };
+            rule.Match.DialogId = new TextPattern { Value = "confirm", Mode = TextPatternMode.Contains };
+            rule.Match.Text = new TextPattern { Value = "save", Mode = TextPatternMode.Contains };
             rule.Match.ProcessName = new TextPattern { Value = "revit", Mode = TextPatternMode.Equals };
             var dialog = new DialogInfo { DialogId = "confirm", Title = "Warning", Text = "Save changes", ProcessName = "Revit" };
             Assert.Same(rule, DialogMatcher.FindFirstMatch(new[] { rule }, dialog, DialogSource.Api));

@@ -169,7 +169,6 @@ IPC Commands:
     --button <name>             Button name exactly as listed (or --button-id <automationId>)
     --by <name>                 Who decided, e.g. the agent or model name (required)
     --save-rule                 Also save an allowlist rule (reversible buttons only)
-    --force                     With --save-rule: save even if the button is not known reversible
     --timeout <ms>              Wait for the watcher (optional, default: 10000)
   reload-allowlist              Re-read and validate the dialog allowlist
   lookup                        Inspect a Revit element by ElementId
@@ -415,7 +414,7 @@ Exit codes:
         private static int RunDialogDecide(string[] args)
         {
             string? id = null, button = null, buttonId = null, by = null;
-            bool saveRule = false, force = false;
+            bool saveRule = false;
             int timeoutMs = 10000;
             for (int i = 1; i < args.Length; i++)
             {
@@ -426,8 +425,11 @@ Exit codes:
                     case "--button-id": buttonId = i + 1 < args.Length ? args[++i] : null; break;
                     case "--by": by = i + 1 < args.Length ? args[++i] : null; break;
                     case "--save-rule": saveRule = true; break;
-                    case "--force": force = true; break;
-                    case "--timeout": if (i + 1 < args.Length) int.TryParse(args[++i], out timeoutMs); break;
+                    case "--timeout":
+                        if (i + 1 >= args.Length || !int.TryParse(args[++i], out timeoutMs) || timeoutMs < 0)
+                            return PrintDialogUsageError("--timeout needs a non-negative integer (milliseconds)");
+                        break;
+                    default: return PrintDialogUsageError("unknown option: " + args[i]);
                 }
             }
 
@@ -439,7 +441,7 @@ Exit codes:
             }
 
             var store = new RevitHarness.Dialogs.PendingStore();
-            var request = store.RequestDecision(id!, button, buttonId, by, saveRule, force);
+            var request = store.RequestDecision(id!, button, buttonId, by, saveRule);
             if (!request.Ok)
             {
                 Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(Print(false, request.Error, request.Pending), DialogJson));
@@ -459,6 +461,12 @@ Exit codes:
             Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(
                 Print(ok, ok ? null : result.StaleReason ?? result.Resolution?.Note ?? result.Status, result), DialogJson));
             return ok ? ExitSuccess : ExitFailure;
+        }
+
+        private static int PrintDialogUsageError(string error)
+        {
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { ok = false, error, pending = (object?)null }, DialogJson));
+            return ExitFailure;
         }
 
         private static async Task<int> RunReloadAllowlistAsync()

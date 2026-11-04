@@ -66,6 +66,11 @@ namespace RevitHarness.Addin.DialogHandling
             }
         }
 
+        // A result may only be forced when the dialog is known to offer it. A TaskDialog reports no buttons, so any result is accepted there.
+        public static bool IsOffered(DialogInfo info, int code) =>
+            info.ButtonDetails.Count == 0 ||
+            info.ButtonDetails.Exists(b => int.TryParse(b.AutomationId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var offered) && offered == code);
+
         // Result to hand to OverrideResult: a button's AutomationId (MessageBox buttons carry the code) or the rule's resultCode.
         public static bool TryGetResultCode(DialogDecision decision, out int code)
         {

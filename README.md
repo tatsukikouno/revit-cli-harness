@@ -124,18 +124,18 @@ The harness never calls an AI itself. A dialog with no matching allowlist rule (
 
 ```bash
 revit-harness dialog-pending [--all]      # open entries (id, title, automationId, buttons, bodySummary, screenshotPath, dumpPath, status)
-revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by "<agent or model name>" [--save-rule] [--force] [--timeout 10000]
+revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by "<agent or model name>" [--save-rule] [--timeout 10000]
 ```
 
 Check for pending dialogs whenever a command seems stuck or times out (a modal dialog blocks Revit), read `bodySummary` and the screenshot, then press one of the listed buttons. A nonexistent button is rejected. The watcher (`scripts/dialog-watcher.ps1 start`) must be running: it presses the button by UI Automation and completes the entry, which the CLI waits for (exit 0 resolved, 1 rejected/stale/failed, 2 watcher did not pick it up; the request is then withdrawn). `--by` is mandatory and lands in the log as `decidedBy="external"`, `deciderName=<by>`. A dialog that disappears before the decision is marked `stale` and cannot be decided.
 
-`--save-rule` also writes an allowlist rule, but only for buttons known to be reversible (OK, Cancel, Close). `--force` extends that to other buttons. A dialog covered by a `noLearn` rule is never saved, and neither is anything on the unsigned add-in security dialog.
+`--save-rule` also writes an allowlist rule, but only for buttons known to be reversible (OK, Cancel, Close); a destructive button is pressed once and never learned, write that rule by hand if you really want it. A dialog covered by a `noLearn` rule is never saved, and neither is anything on the unsigned add-in security dialog.
 
 **Testers**: mark the dialogs your test deliberately provokes with a rule that has `"noLearn": true`, so they are never auto-pressed or learned and always reach the caller as pending (see `samples/allowlist.sample.json`).
 
 ### Unsigned add-in security dialog
 
-Rules can carry `match.addIn` is a plain string, not a pattern object. It is compared ordinal and case-insensitively against the add-in name, the dll path and the dll file name extracted from the dialog body. Without `*` it must match one of them exactly. A trailing `*` (for example `Contoso.*`) makes it a prefix match; any other `*` is literal and there is no regex. A lone `*` matches every add-in, so it loads unknown unsigned add-ins too. For "Security - Unsigned Add-in", only a rule with an `addIn` condition can answer, so known add-ins get the configured button (for example "Load Once") and every other add-in becomes pending. "Always Load" and "Do Not Load" are never learned. Rules may also use `match.automationId` and `match.buttons` (exact button-name set) next to `title` and `text`. See `samples/allowlist.sample.json`.
+`match.addIn` is a plain string, not a pattern object, and applies only to the "Security - Unsigned Add-in" dialog: a rule with `addIn` never matches any other dialog. It is compared ordinal and case-insensitively. A value with a path separator is compared with the dll path only; any other value is compared with the add-in name and the dll file name, so an add-in cannot impersonate a path through its self-declared name. Without `*` it must match exactly. A trailing `*` (for example `Contoso.*`) makes it a prefix match; any other `*` is literal and there is no regex. A lone `*` matches every unsigned add-in, so it loads unknown unsigned add-ins too. For the security dialog only a rule with an `addIn` condition can answer, so known add-ins get the configured button (for example "Load Once") and every other add-in becomes pending. "Always Load" and "Do Not Load" are never learned. Rules may also use `match.automationId` and `match.buttons` (exact button-name set) next to `title` and `text`. A text pattern needs a non-empty `value`; an omitted `mode` means `equals`. A matching `noLearn` rule always wins over earlier rules, and a matching rule whose action does not apply to the dialog leaves it pending. See `samples/allowlist.sample.json`.
 
 ### Other
 
@@ -155,7 +155,7 @@ RevitHarness.DialogWatcher.exe --once --dry-run              # one pass, log onl
 RevitHarness.DialogWatcher.exe --selftest                    # fake WinForms dialog, needs an interactive desktop
 ```
 
-Options: `--once`, `--dry-run`, `--pid <revit pid>`, `--allowlist <path>` (read-only, no learning), `--log-dir <dir>` (used like LOCALAPPDATA, records land in `<dir>\RevitHarness\dialogs`). Stop with Ctrl+C or by creating `dialogs\watcher.stop`. A named mutex prevents a second instance.
+Options: `--once`, `--dry-run`, `--pid <revit pid>`. The allowlist, pending entries and logs always live under `%LOCALAPPDATA%\RevitHarness\dialogs`. Stop with Ctrl+C or by creating `dialogs\watcher.stop`. A session-local named mutex (`Local\`) prevents a second watcher per Windows session; the pending-store and log mutexes are session-local too, so run the watcher, add-in and CLI in the same session.
 
 ## Exit Codes
 

@@ -96,7 +96,7 @@ namespace RevitHarness.Dialogs
                 if (candidate.Source == DialogSource.Watcher) SupersedeApiEntries(open, candidate.Pid, candidate.Id);
                 Write(candidate);
                 return candidate;
-            }) ?? candidate;
+            });
         }
 
         // The watcher answered a dialog itself, so the api hook's entry for the same process describes a dialog that is gone.
@@ -114,12 +114,18 @@ namespace RevitHarness.Dialogs
 
         // Validates a caller's decision and queues it for the watcher. The button must exist in the dialog.
         public DecisionRequestResult RequestDecision(string id, string? buttonName, string? buttonAutomationId, string? by,
-            bool saveRule, bool force)
+            bool saveRule)
         {
             if (string.IsNullOrWhiteSpace(by)) return Fail("--by (decider name or model) is required");
             if (string.IsNullOrWhiteSpace(buttonName) && string.IsNullOrWhiteSpace(buttonAutomationId))
                 return Fail("a button name or automationId is required");
-            var result = Locked(() =>
+            try { return RequestDecisionLocked(id, buttonName, buttonAutomationId, by!, saveRule); }
+            catch (TimeoutException e) { return Fail(e.Message); }
+        }
+
+        private DecisionRequestResult RequestDecisionLocked(string id, string? buttonName, string? buttonAutomationId, string by, bool saveRule)
+        {
+            return Locked(() =>
             {
                 var pending = Get(id);
                 if (pending == null) return Fail("pending dialog not found: " + id);
@@ -132,42 +138,74 @@ namespace RevitHarness.Dialogs
                     return Fail("button not in dialog: " + (buttonName ?? buttonAutomationId) + ". Available: " +
                         string.Join(", ", pending.Buttons.Select(b => b.Name)), pending);
                 pending.Status = PendingStatus.DecisionRequested;
-                pending.Decision = new PendingDecisionRequest { Button = button, By = by!.Trim(), SaveRule = saveRule, Force = force };
+                pending.Decision = new PendingDecisionRequest { Button = button, By = by.Trim(), SaveRule = saveRule };
                 pending.UpdatedAt = DateTimeOffset.UtcNow;
                 Write(pending);
                 return new DecisionRequestResult { Ok = true, Pending = pending };
             });
-            return result ?? Fail("pending store busy");
         }
 
-        // Waits for the watcher to apply a requested decision. On timeout the request is withdrawn and null is returned.
-        public PendingDialog? WaitForResolution(string id, TimeSpan timeout, TimeSpan? pollInterval = null)
+        // Waits for the watcher to apply a requested decision. When it does not pick the request up in time the request is
+        // withdrawn and null is returned. A request the watcher already claimed cannot be withdrawn: the wait continues
+        // for the apply grace period and returns the entry (possibly still applying) so the caller never reports a press
+        // that happened as a timeout.
+        public PendingDialog? WaitForResolution(string id, TimeSpan timeout, TimeSpan? pollInterval = null, TimeSpan? applyGrace = null)
         {
+            var poll = pollInterval ?? TimeSpan.FromMilliseconds(200);
             var deadline = DateTime.UtcNow + timeout;
             while (true)
             {
                 var current = Get(id);
                 // A null read is a file being swapped by a writer: poll again.
-                if (current != null && current.Status != PendingStatus.DecisionRequested) return current;
-                if (DateTime.UtcNow >= deadline) break;
-                System.Threading.Thread.Sleep(pollInterval ?? TimeSpan.FromMilliseconds(200));
+                if (current != null && current.Status != PendingStatus.DecisionRequested && current.Status != PendingStatus.Applying) return current;
+                if (DateTime.UtcNow >= deadline)
+                {
+                    if (TryWithdrawRequest(id)) return null;
+                    break;
+                }
+                System.Threading.Thread.Sleep(poll);
             }
-            WithdrawRequest(id);
-            return null;
+            var graceEnd = DateTime.UtcNow + (applyGrace ?? ApplyGrace);
+            while (DateTime.UtcNow < graceEnd)
+            {
+                var current = Get(id);
+                if (current != null && current.Status != PendingStatus.Applying) return current;
+                System.Threading.Thread.Sleep(poll);
+            }
+            return Get(id);
         }
 
-        // Called when the watcher did not pick the request up in time, so it cannot fire unexpectedly later.
-        public void WithdrawRequest(string id) => Locked<object?>(() =>
+        private static readonly TimeSpan ApplyGrace = TimeSpan.FromSeconds(15);
+
+        // Returns false when the watcher already claimed the request (or the store was busy), so it cannot be withdrawn.
+        public bool TryWithdrawRequest(string id)
+        {
+            try { return WithdrawLocked(id); }
+            catch (TimeoutException) { return false; }
+        }
+
+        private bool WithdrawLocked(string id) => Locked(() =>
         {
             var pending = Get(id);
-            if (pending != null && pending.Status == PendingStatus.DecisionRequested)
-            {
-                pending.Status = PendingStatus.Pending;
-                pending.Decision = null;
-                pending.UpdatedAt = DateTimeOffset.UtcNow;
-                Write(pending);
-            }
-            return null;
+            if (pending == null) return true;
+            if (pending.Status != PendingStatus.DecisionRequested) return pending.Status != PendingStatus.Applying;
+            pending.Status = PendingStatus.Pending;
+            pending.Decision = null;
+            pending.UpdatedAt = DateTimeOffset.UtcNow;
+            Write(pending);
+            return true;
+        });
+
+        // Watcher side: takes the requested decision under the lock before pressing. Returns null when the request was
+        // withdrawn or replaced, in which case nothing may be pressed.
+        public PendingDialog? ClaimDecision(string id) => Locked(() =>
+        {
+            var pending = Get(id);
+            if (pending == null || pending.Status != PendingStatus.DecisionRequested || pending.Decision == null) return null;
+            pending.Status = PendingStatus.Applying;
+            pending.UpdatedAt = DateTimeOffset.UtcNow;
+            Write(pending);
+            return pending;
         });
 
         public void MarkStale(string id, string reason) => Locked<object?>(() =>
@@ -177,26 +215,15 @@ namespace RevitHarness.Dialogs
             return null;
         });
 
-        public IReadOnlyList<PendingDialog> MarkStaleWhere(Func<PendingDialog, string?> staleReason) => Locked(() =>
-        {
-            var marked = new List<PendingDialog>();
-            foreach (var pending in List(true))
-            {
-                var reason = staleReason(pending);
-                if (reason == null) continue;
-                SetStale(pending, reason);
-                marked.Add(pending);
-            }
-            return (IReadOnlyList<PendingDialog>)marked;
-        }) ?? Array.Empty<PendingDialog>();
 
-        // Watcher side: the requested button was pressed (or failed). Saves the rule when allowed and logs DecidedBy=external.
+        // Watcher side: finishes a claimed decision. The request cannot change while it is claimed, so the logged button is the pressed one.
+        // The requested button was pressed (or failed). Saves the rule when allowed and logs DecidedBy=external.
         public PendingDialog? Complete(string id, bool pressed, string? note = null)
         {
             return Locked(() =>
             {
                 var pending = Get(id);
-                if (pending == null || pending.Status != PendingStatus.DecisionRequested || pending.Decision == null) return pending;
+                if (pending == null || pending.Status != PendingStatus.Applying || pending.Decision == null) return pending;
                 var request = pending.Decision;
                 var resolution = new PendingResolution { By = request.By, PressedButton = pressed ? request.Button : null, Note = note };
                 if (pressed && request.SaveRule) SaveRule(pending, request, resolution);
@@ -235,8 +262,8 @@ namespace RevitHarness.Dialogs
                 AllowlistLoader.Load(baseDirectory).Rules.Where(r => r.NoLearn), pending.Dialog, DialogSource.Watcher)?.Id;
             if (noLearn != null)
             { resolution.RuleNotSavedReason = "noLearn rule " + noLearn + " matches this dialog"; return; }
-            if (!request.Force && !Reversibility.IsReversible(button))
-            { resolution.RuleNotSavedReason = "button is not known to be reversible; pass --force to save anyway"; return; }
+            if (!Reversibility.IsReversible(button))
+            { resolution.RuleNotSavedReason = "button is not known to be reversible; write an allowlist rule by hand"; return; }
             var key = pending.Key ?? DialogKey.From(pending.Dialog);
             var rule = new AllowRule
             {
@@ -308,7 +335,8 @@ namespace RevitHarness.Dialogs
             var directory = DialogPaths.GetPendingDirectory(baseDirectory);
             Directory.CreateDirectory(directory);
             using var gate = CrossProcessLock.Acquire(Path.Combine(directory, ".lock"), TimeSpan.FromSeconds(10));
-            return gate.Held ? action() : default!;
+            if (!gate.Held) throw new TimeoutException("pending store busy (lock not acquired within 10 s)");
+            return action();
         }
     }
 }

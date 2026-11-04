@@ -9,6 +9,8 @@ namespace RevitHarness.Dialogs
         public const string Pending = "pending";
         // A decision was requested through the CLI and waits for the watcher to press the button.
         public const string DecisionRequested = "decisionRequested";
+        // The watcher claimed the request and is pressing the button. A caller can no longer withdraw it.
+        public const string Applying = "applying";
         public const string Resolved = "resolved";
         // The dialog disappeared (or its process died) before a decision was applied.
         public const string Stale = "stale";
@@ -23,8 +25,6 @@ namespace RevitHarness.Dialogs
         public string By { get; set; } = string.Empty;
         [JsonPropertyName("saveRule")]
         public bool SaveRule { get; set; }
-        [JsonPropertyName("force")]
-        public bool Force { get; set; }
         [JsonPropertyName("requestedAt")]
         public DateTimeOffset RequestedAt { get; set; } = DateTimeOffset.UtcNow;
     }
@@ -95,6 +95,6 @@ namespace RevitHarness.Dialogs
         [JsonPropertyName("staleReason")]
         public string? StaleReason { get; set; }
 
-        public bool IsOpen => Status == PendingStatus.Pending || Status == PendingStatus.DecisionRequested;
+        public bool IsOpen => Status == PendingStatus.Pending || Status == PendingStatus.DecisionRequested || Status == PendingStatus.Applying;
     }
 }

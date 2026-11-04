@@ -71,7 +71,7 @@ namespace RevitHarness.Addin.Ipc
                 foreach (var name in owned.Keys) EverOwned.TryAdd(name, 0);
             }
 #if NET48
-            Generation generation = new ByteGeneration(shadowAssemblyPath, owned, hosts);
+            Generation generation = new ByteGeneration(shadowAssemblyPath, owned, hosts, log);
 #else
             Generation generation = new CollectibleGeneration(shadowAssemblyPath, owned, hosts);
 #endif
@@ -100,27 +100,37 @@ namespace RevitHarness.Addin.Ipc
         {
             private readonly Dictionary<string, Assembly> _assemblies = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
             private readonly Dictionary<string, Assembly> _hosts;
-            private static ByteGeneration? Newest;
+            private static readonly List<ByteGeneration> Live = new List<ByteGeneration>();
+            private readonly Action<string> _log;
+            private static int _stamp;
             private ResolveEventHandler? _resolver;
             public override WeakReference Lifetime { get; }
             public override IReadOnlyCollection<Assembly> Assemblies => _assemblies.Values;
 
-            public ByteGeneration(string path, Dictionary<string, string> owned, Dictionary<string, Assembly> hosts) : base(path)
+            public ByteGeneration(string path, Dictionary<string, string> owned, Dictionary<string, Assembly> hosts, Action<string> log) : base(path)
             {
                 _hosts = hosts;
+                _log = log;
                 _resolver = Resolve;
                 AppDomain.CurrentDomain.AssemblyResolve += _resolver;
                 try
                 {
+                    var mainName = AssemblyName.GetAssemblyName(path).Name!;
+                    var suffix = "_g" + System.Threading.Interlocked.Increment(ref _stamp);
+                    var renames = owned.Keys
+                        .Where(n => !string.Equals(n, mainName, StringComparison.OrdinalIgnoreCase))
+                        .ToDictionary(n => n, n => n + suffix, StringComparer.OrdinalIgnoreCase);
                     foreach (var item in owned)
                     {
-                        var pdb = Path.ChangeExtension(item.Value, ".pdb");
-                        _assemblies[item.Key] = File.Exists(pdb)
-                            ? Assembly.Load(File.ReadAllBytes(item.Value), File.ReadAllBytes(pdb))
-                            : Assembly.Load(File.ReadAllBytes(item.Value));
+                        var pdbPath = Path.ChangeExtension(item.Value, ".pdb");
+                        var (dllBytes, pdbBytes) = renames.Count == 0
+                            ? (File.ReadAllBytes(item.Value), File.Exists(pdbPath) ? File.ReadAllBytes(pdbPath) : null)
+                            : AssemblyRenamer.Rename(File.ReadAllBytes(item.Value), File.Exists(pdbPath) ? File.ReadAllBytes(pdbPath) : null, renames);
+                        var key = renames.TryGetValue(item.Key, out var renamed) ? renamed : item.Key;
+                        _assemblies[key] = pdbBytes != null ? Assembly.Load(dllBytes, pdbBytes) : Assembly.Load(dllBytes);
                     }
                     LoadedAssembly = _assemblies[AssemblyName.GetAssemblyName(path).Name!];
-                    Newest = this;
+                    lock (Live) Live.Add(this);
                     Lifetime = new WeakReference(LoadedAssembly, true);
                 }
                 catch { Dispose(); throw; }
@@ -129,19 +139,23 @@ namespace RevitHarness.Addin.Ipc
             private Assembly? Resolve(object? sender, ResolveEventArgs args)
             {
                 // Resident generations can have identical identities; only the requester identifies its owner.
-                // Revit 2024 can deliver static binds with a null requester; the newest generation answers those.
-                var mine = args.RequestingAssembly == null
-                    ? ReferenceEquals(Newest, this)
-                    : _assemblies.Values.Contains(args.RequestingAssembly);
-                if (!mine) return null;
                 var name = new AssemblyName(args.Name).Name!;
+                // Revit 2024 can deliver static binds with a null requester; the newest live generation that owns the name answers those.
+                bool mine;
+                if (args.RequestingAssembly == null)
+                {
+                    lock (Live) mine = ReferenceEquals(Live.LastOrDefault(g => g._assemblies.ContainsKey(name)), this);
+                }
+                else mine = _assemblies.Values.Contains(args.RequestingAssembly);
+                _log($"Resolve {name} requester={args.RequestingAssembly?.GetName().Name ?? "null"} mine={mine} main={LoadedAssembly?.GetName().Name}");
+                if (!mine) return null;
                 if (_assemblies.TryGetValue(name, out var owned)) return owned;
                 return _hosts.TryGetValue(name, out var host) ? host : null;
             }
 
             public override void Dispose()
             {
-                if (ReferenceEquals(Newest, this)) Newest = null;
+                lock (Live) Live.Remove(this);
                 if (_resolver != null) AppDomain.CurrentDomain.AssemblyResolve -= _resolver;
                 _resolver = null;
                 LoadedAssembly = null;

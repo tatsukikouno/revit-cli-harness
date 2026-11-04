@@ -33,6 +33,7 @@ namespace SampleTarget.Probe
                     var doc = active ?? uiapp.Application.NewProjectDocument(UnitSystem.Metric);
                     try
                     {
+                        if (File.Exists(path)) File.Delete(path);
                         using (var transaction = new Transaction(doc, "SampleTarget probe"))
                         {
                             transaction.Start();
@@ -51,6 +52,18 @@ namespace SampleTarget.Probe
                 case "ribbon":
                     return JsonConvert.SerializeObject(new { panels = uiapp.GetRibbonPanels("SampleTarget")
                         .Select(p => new { name = p.Name, items = p.GetItems().Select(i => new { name = i.Name, text = i.ItemText }) }) });
+                case "open-doc":
+                    if (uiapp.ActiveUIDocument != null) return JsonConvert.SerializeObject(new { title = uiapp.ActiveUIDocument.Document.Title });
+                    var temp = Path.Combine(Path.GetTempPath(), "sample-target-probe.rvt");
+                    if (File.Exists(temp)) File.Delete(temp);
+                    var created = uiapp.Application.NewProjectDocument(UnitSystem.Metric);
+                    created.SaveAs(temp);
+                    created.Close(false);
+                    return JsonConvert.SerializeObject(new { title = uiapp.OpenAndActivateDocument(temp).Document.Title });
+                case "asm":
+                    return JsonConvert.SerializeObject(AppDomain.CurrentDomain.GetAssemblies()
+                        .Where(a => a.GetName().Name.StartsWith("SampleTarget"))
+                        .Select(a => new { name = a.GetName().Name, version = a.GetName().Version.ToString(), location = a.IsDynamic ? "" : a.Location }));
                 case "alc":
                     return JsonConvert.SerializeObject(new
                     {

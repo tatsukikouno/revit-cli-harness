@@ -11,6 +11,7 @@
     <Compile Include="..\..\src\RevitHarness.Addin\Ipc\IpcServer.cs" Link="Addin\IpcServer.cs" />
     <Compile Include="..\..\src\RevitHarness.Addin\Ipc\IpcMessages.cs" Link="Addin\IpcMessages.cs" />
     <Compile Include="..\..\src\RevitHarness.Addin\Ipc\GenerationLoader.cs" Link="Addin\GenerationLoader.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\AssemblyRenamer.cs" Link="Addin\AssemblyRenamer.cs" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\src\RevitHarness.Cli\Installation\*.cs" Link="Cli\%(Filename)%(Extension)" />
@@ -24,6 +25,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Mono.Cecil" />
     <PackageReference Include="xunit" />
     <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />

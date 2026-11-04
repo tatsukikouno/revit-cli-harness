@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 using Xunit;
 
@@ -140,6 +141,27 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.DoesNotContain(Path.GetDirectoryName(path)!, Generation.LiveShadowDirectories);
             using var generation = Load(path);
             Assert.Contains(Path.GetDirectoryName(path)!, Generation.LiveShadowDirectories);
+        }
+
+        [Fact]
+        public void RenameChangesHelperNameAndItsReferencesButKeepsTypesWorking()
+        {
+            var names = new Dictionary<string, string> { ["FxHelper"] = "FxHelper_g9" };
+            var main = AssemblyRenamer.Rename(File.ReadAllBytes(BuildTarget("v1")), null, names).Dll;
+            var helper = AssemblyRenamer.Rename(File.ReadAllBytes(Path.Combine(_root, "v1", "FxHelper.dll")), null, names).Dll;
+
+            Assert.Equal("FxHelper_g9", AssemblyName.GetAssemblyName(WriteTemp(helper, "h.dll")).Name);
+            using var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(main));
+            var reader = pe.GetMetadataReader();
+            Assert.Contains(reader.AssemblyReferences, r => reader.GetString(reader.GetAssemblyReference(r).Name) == "FxHelper_g9");
+            Assert.DoesNotContain(reader.AssemblyReferences, r => reader.GetString(reader.GetAssemblyReference(r).Name) == "FxHelper");
+        }
+
+        private string WriteTemp(byte[] bytes, string name)
+        {
+            var path = Path.Combine(_root, name);
+            File.WriteAllBytes(path, bytes);
+            return path;
         }
     }
 }

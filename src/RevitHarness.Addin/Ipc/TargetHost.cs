@@ -327,7 +327,6 @@ namespace RevitHarness.Addin.Ipc
         public void Dispose() => _generation?.Dispose();
     }
 
-    [Transaction(TransactionMode.Manual)]
     public abstract class TargetSlotCommand : IExternalCommand
     {
         private readonly int _slot;
@@ -346,12 +345,20 @@ namespace RevitHarness.Addin.Ipc
         }
     }
 
+    [Transaction(TransactionMode.Manual)]
     public sealed class TargetSlot0 : TargetSlotCommand { public TargetSlot0() : base(0) { } }
+    [Transaction(TransactionMode.Manual)]
     public sealed class TargetSlot1 : TargetSlotCommand { public TargetSlot1() : base(1) { } }
+    [Transaction(TransactionMode.Manual)]
     public sealed class TargetSlot2 : TargetSlotCommand { public TargetSlot2() : base(2) { } }
+    [Transaction(TransactionMode.Manual)]
     public sealed class TargetSlot3 : TargetSlotCommand { public TargetSlot3() : base(3) { } }
+    [Transaction(TransactionMode.Manual)]
     public sealed class TargetSlot4 : TargetSlotCommand { public TargetSlot4() : base(4) { } }
+    [Transaction(TransactionMode.Manual)]
     public sealed class TargetSlot5 : TargetSlotCommand { public TargetSlot5() : base(5) { } }
+    [Transaction(TransactionMode.Manual)]
     public sealed class TargetSlot6 : TargetSlotCommand { public TargetSlot6() : base(6) { } }
+    [Transaction(TransactionMode.Manual)]
     public sealed class TargetSlot7 : TargetSlotCommand { public TargetSlot7() : base(7) { } }
 }

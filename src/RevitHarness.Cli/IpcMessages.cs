@@ -72,5 +72,7 @@ namespace RevitHarness.Cli
         public const string RunCommand = "runCommand";
         public const string Shutdown = "shutdown";
         public const string LookupElement = "lookupElement";
+        public const string DialogLog = "dialog-log";
+        public const string ReloadAllowlist = "reload-allowlist";
     }
 }

@@ -64,6 +64,18 @@ namespace RevitHarness.Cli
                     case "lookup":
                         return await RunLookupAsync(args);
 
+                    case "dialog-log":
+                        return await RunDialogLogAsync(args);
+
+                    case "dialog-pending":
+                        return RunDialogPending(args);
+
+                    case "dialog-decide":
+                        return RunDialogDecide(args);
+
+                    case "reload-allowlist":
+                        return await RunReloadAllowlistAsync();
+
                     case "--help":
                     case "-h":
                     case "help":
@@ -148,6 +160,18 @@ IPC Commands:
     --args <json>               Arguments as JSON (optional, e.g., '{""key"":""value""}')
     --timeout <ms>              Timeout in milliseconds (optional, default: 300000)
   shutdown                      Stop the IPC server (Revit continues running)
+  dialog-log                    Show recent dialog auto-handling records (JSONL)
+    --count <n>                 Number of records (optional, default: 50)
+  dialog-pending                List unknown dialogs waiting for an external decision (JSON)
+    --all                       Include resolved and stale entries
+  dialog-decide                 Press an existing button of a pending dialog (via the DialogWatcher)
+    --id <pendingId>            Pending dialog id from dialog-pending (required)
+    --button <name>             Button name exactly as listed (or --button-id <automationId>)
+    --by <name>                 Who decided, e.g. the agent or model name (required)
+    --save-rule                 Also save an allowlist rule (reversible buttons only)
+    --force                     With --save-rule: save even if the button is not known reversible
+    --timeout <ms>              Wait for the watcher (optional, default: 10000)
+  reload-allowlist              Re-read and validate the dialog allowlist
   lookup                        Inspect a Revit element by ElementId
     --id <elementId>            Element ID to inspect (required)
     --depth <n>                 Max decomposition depth (default: 0)
@@ -350,6 +374,109 @@ Exit codes:
             return response.Ok ? ExitSuccess : ExitFailure;
         }
 
+        private static async Task<int> RunDialogLogAsync(string[] args)
+        {
+            int count = 50;
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (args[i].Equals("--count", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length && int.TryParse(args[++i], out var c))
+                    count = c;
+            }
+
+            using var client = new IpcClient();
+            await client.ConnectAsync();
+
+            var response = await client.SendRequestAsync(new IpcRequest
+            {
+                Id = Guid.NewGuid().ToString(),
+                Op = Operations.DialogLog,
+                Timestamp = DateTime.UtcNow.ToString("O"),
+                Payload = new Dictionary<string, object> { ["count"] = count }
+            });
+            Console.WriteLine(JsonConvert.SerializeObject(response, Formatting.Indented));
+
+            return response.Ok ? ExitSuccess : ExitFailure;
+        }
+
+        private static readonly System.Text.Json.JsonSerializerOptions DialogJson = new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+
+        private static int RunDialogPending(string[] args)
+        {
+            var all = args.Skip(1).Any(a => a.Equals("--all", StringComparison.OrdinalIgnoreCase));
+            var items = new RevitHarness.Dialogs.PendingStore().List(openOnly: !all);
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { ok = true, count = items.Count, pending = items }, DialogJson));
+            return ExitSuccess;
+        }
+
+        private static int RunDialogDecide(string[] args)
+        {
+            string? id = null, button = null, buttonId = null, by = null;
+            bool saveRule = false, force = false;
+            int timeoutMs = 10000;
+            for (int i = 1; i < args.Length; i++)
+            {
+                switch (args[i].ToLowerInvariant())
+                {
+                    case "--id": id = i + 1 < args.Length ? args[++i] : null; break;
+                    case "--button": button = i + 1 < args.Length ? args[++i] : null; break;
+                    case "--button-id": buttonId = i + 1 < args.Length ? args[++i] : null; break;
+                    case "--by": by = i + 1 < args.Length ? args[++i] : null; break;
+                    case "--save-rule": saveRule = true; break;
+                    case "--force": force = true; break;
+                    case "--timeout": if (i + 1 < args.Length) int.TryParse(args[++i], out timeoutMs); break;
+                }
+            }
+
+            object Print(bool ok, string? error, RevitHarness.Dialogs.PendingDialog? pending) => new { ok, error, pending };
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(Print(false, "--id is required", null), DialogJson));
+                return ExitFailure;
+            }
+
+            var store = new RevitHarness.Dialogs.PendingStore();
+            var request = store.RequestDecision(id!, button, buttonId, by, saveRule, force);
+            if (!request.Ok)
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(Print(false, request.Error, request.Pending), DialogJson));
+                return ExitFailure;
+            }
+
+            var result = store.WaitForResolution(id!, TimeSpan.FromMilliseconds(timeoutMs));
+            if (result == null)
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(Print(false,
+                    "the DialogWatcher did not apply the decision in time (is it running? scripts/dialog-watcher.ps1 status); request withdrawn",
+                    store.Get(id!)), DialogJson));
+                return ExitConnectionError;
+            }
+
+            var ok = result.Status == RevitHarness.Dialogs.PendingStatus.Resolved;
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(
+                Print(ok, ok ? null : result.StaleReason ?? result.Resolution?.Note ?? result.Status, result), DialogJson));
+            return ok ? ExitSuccess : ExitFailure;
+        }
+
+        private static async Task<int> RunReloadAllowlistAsync()
+        {
+            using var client = new IpcClient();
+            await client.ConnectAsync();
+
+            var response = await client.SendRequestAsync(new IpcRequest
+            {
+                Id = Guid.NewGuid().ToString(),
+                Op = Operations.ReloadAllowlist,
+                Timestamp = DateTime.UtcNow.ToString("O")
+            });
+            Console.WriteLine(JsonConvert.SerializeObject(response, Formatting.Indented));
+
+            return response.Ok ? ExitSuccess : ExitFailure;
+        }
+
         private static async Task<int> RunTestsAsync(string[] args)
         {
             string? dll = null;
@@ -395,7 +522,9 @@ Exit codes:
             {
                 ["assemblyPath"] = dll!,
                 ["entryType"] = type!,
-                ["timeoutMs"] = timeout
+                ["timeoutMs"] = timeout,
+                ["commandId"] = Environment.GetEnvironmentVariable("REVIT_HARNESS_COMMAND_ID") ?? Guid.NewGuid().ToString("N"),
+                ["taskId"] = Environment.GetEnvironmentVariable("REVIT_HARNESS_TASK_ID") ?? string.Empty
             };
 
             if (!string.IsNullOrEmpty(filter))
@@ -476,7 +605,9 @@ Exit codes:
             {
                 ["assemblyPath"] = dll!,
                 ["commandType"] = type!,
-                ["timeoutMs"] = timeout
+                ["timeoutMs"] = timeout,
+                ["commandId"] = Environment.GetEnvironmentVariable("REVIT_HARNESS_COMMAND_ID") ?? Guid.NewGuid().ToString("N"),
+                ["taskId"] = Environment.GetEnvironmentVariable("REVIT_HARNESS_TASK_ID") ?? string.Empty
             };
 
             if (!string.IsNullOrEmpty(argsJson))

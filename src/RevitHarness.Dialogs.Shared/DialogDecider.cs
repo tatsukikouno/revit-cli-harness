@@ -69,7 +69,7 @@ namespace RevitHarness.Dialogs
                 if (AddInInfo.IsUnsignedAddInDialog(dialog))
                     reason += "; unsigned add-in not on the known list: " + string.Join(", ", AddInInfo.Extract(dialog));
                 var pending = pendingStore.Register(PendingStore.From(dialog, source, dialogPid ?? context.Pid, hwnd, screenshotPath,
-                    dumpPath, record.LogId, rule?.Id, reason));
+                    dumpPath, record.LogId, rule != null && rule.NoLearn ? rule.Id : null, reason));
                 record.DecidedBy = "pending";
                 record.ActionTaken = "none";
                 record.PendingId = pending.Id;

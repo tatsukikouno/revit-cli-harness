@@ -169,7 +169,11 @@ namespace RevitHarness.Dialogs
             while (DateTime.UtcNow < graceEnd)
             {
                 var current = Get(id);
-                if (current != null && current.Status != PendingStatus.Applying) return current;
+                if (current != null && current.Status == PendingStatus.DecisionRequested)
+                {
+                    if (TryWithdrawRequest(id)) return null;
+                }
+                else if (current != null && current.Status != PendingStatus.Applying) return current;
                 System.Threading.Thread.Sleep(poll);
             }
             return Get(id);
@@ -177,7 +181,7 @@ namespace RevitHarness.Dialogs
 
         private static readonly TimeSpan ApplyGrace = TimeSpan.FromSeconds(15);
 
-        // Returns false when the watcher already claimed the request (or the store was busy), so it cannot be withdrawn.
+        // True only when no request is outstanding afterwards. False when the watcher claimed or finished it, or the store was busy.
         public bool TryWithdrawRequest(string id)
         {
             try { return WithdrawLocked(id); }
@@ -187,8 +191,8 @@ namespace RevitHarness.Dialogs
         private bool WithdrawLocked(string id) => Locked(() =>
         {
             var pending = Get(id);
-            if (pending == null) return true;
-            if (pending.Status != PendingStatus.DecisionRequested) return pending.Status != PendingStatus.Applying;
+            if (pending == null || pending.Status == PendingStatus.Pending) return true;
+            if (pending.Status != PendingStatus.DecisionRequested) return false;
             pending.Status = PendingStatus.Pending;
             pending.Decision = null;
             pending.UpdatedAt = DateTimeOffset.UtcNow;

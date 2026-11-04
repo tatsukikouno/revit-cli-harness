@@ -16,11 +16,12 @@ namespace RevitHarness.Dialogs
         }
 
         // A Revit warning is deleted only by an enabled rule with a dialogId condition that is not marked noLearn,
-        // and never when a noLearn rule also matches it.
+        // and never when any noLearn rule matches it, with or without a dialogId condition.
         public static AllowRule? FindWarningDeleteRule(IEnumerable<AllowRule> rules, DialogInfo failure)
         {
-            var rule = FindDecisionRule(rules.Where(r => r?.Match?.DialogId != null), failure, DialogSource.Api);
-            return rule != null && !rule.NoLearn ? rule : null;
+            var list = rules as IReadOnlyList<AllowRule> ?? rules.ToList();
+            if (FindFirstMatch(list.Where(r => r != null && r.NoLearn), failure, DialogSource.Api) != null) return null;
+            return FindFirstMatch(list.Where(r => r?.Match?.DialogId != null), failure, DialogSource.Api);
         }
 
         public static AllowRule? FindFirstMatch(IEnumerable<AllowRule> rules, DialogInfo dialog, DialogSource source)
@@ -57,12 +58,17 @@ namespace RevitHarness.Dialogs
             var prefix = pattern.EndsWith("*", StringComparison.Ordinal);
             var text = prefix ? pattern.Substring(0, pattern.Length - 1) : pattern;
             var identity = AddInInfo.Identify(dialog);
-            var candidates = text.IndexOfAny(new[] { '\\', '/' }) >= 0 ? identity.Paths : identity.NamesAndFiles;
+            var isPath = text.IndexOfAny(new[] { '\\', '/' }) >= 0;
+            var candidates = isPath ? identity.Paths.Where(p => !HasParentSegment(p)) : identity.NamesAndFiles;
             foreach (var value in candidates)
                 if (prefix ? value.StartsWith(text, StringComparison.OrdinalIgnoreCase) : string.Equals(value, text, StringComparison.OrdinalIgnoreCase))
                     return true;
             return false;
         }
+
+        // "C:\Trusted\..\Elsewhere\x.dll" starts with "C:\Trusted\" but does not live there.
+        private static bool HasParentSegment(string path) =>
+            path.Split('\\', '/').Any(segment => segment == "..");
 
         private static bool SameButtons(List<string> expected, DialogInfo dialog)
         {

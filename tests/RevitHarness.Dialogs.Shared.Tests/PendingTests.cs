@@ -552,6 +552,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.Equal("pending", result.Record.DecidedBy);
             Assert.NotNull(result.PendingId);
             Assert.Contains("does not apply", result.Record.Note);
+            Assert.Null(new PendingStore(directory).Get(result.PendingId!)!.NoLearnRuleId);
         }
 
         private static DialogInfo Failure(string guid) => new DialogInfo
@@ -587,6 +588,39 @@ namespace RevitHarness.Dialogs.Shared.Tests
             var partial = TitleRule("partial", false);
             partial.Match.Title = json;
             Assert.Null(DialogMatcher.FindFirstMatch(new[] { partial }, Plain(), DialogSource.Watcher));
+        }
+
+        [Fact]
+        public void NoLearnRuleWithoutDialogIdAlsoProtectsAWarning()
+        {
+            var g = Guid.NewGuid().ToString("D");
+            var keep = new AllowRule
+            {
+                Id = "keep-by-text", Target = DialogTarget.Api, NoLearn = true,
+                Match = new DialogMatch { Text = new TextPattern { Value = "x", Mode = TextPatternMode.Equals } },
+                Action = new DialogAction { ButtonName = "OK" }
+            };
+            Assert.Null(DialogMatcher.FindWarningDeleteRule(new[] { FailureRule("del", g, false), keep }, Failure(g)));
+        }
+
+        [Fact]
+        public void PathConditionRejectsParentDirectorySegments()
+        {
+            var sneaky = Plain("Security - Unsigned Add-in");
+            sneaky.Text = "Name: X\nPath: C:\\Trusted\\..\\Public\\evil.dll";
+            Assert.Null(DialogMatcher.FindFirstMatch(new[] { AddInRule("C:\\Trusted\\*") }, sneaky, DialogSource.Watcher));
+        }
+
+        [Fact]
+        public void WaitReturnsTheFinishedEntryInsteadOfReportingAWithdrawal()
+        {
+            var store = new PendingStore(directory);
+            var id = new DialogDecider(new DecisionContext(), directory).Decide(Plain(), DialogSource.Watcher, hwnd: 5, dialogPid: 3).PendingId!;
+            store.RequestDecision(id, "OK", null, "m", false);
+            store.ClaimDecision(id);
+            store.Complete(id, true);
+            Assert.False(store.TryWithdrawRequest(id));
+            Assert.Equal(PendingStatus.Resolved, store.WaitForResolution(id, TimeSpan.Zero, TimeSpan.FromMilliseconds(10))!.Status);
         }
     }
 }

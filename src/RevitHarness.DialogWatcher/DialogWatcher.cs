@@ -138,8 +138,20 @@ namespace RevitHarness.DialogWatcher
             if (target == null) { pending.Complete(entry.Id, false, "button not found in the live window"); return; }
             if (!target.Patterns.Invoke.IsSupported) { pending.Complete(entry.Id, false, "button does not support Invoke; not pressed"); return; }
             var error = InvokeGuard.Run(() => target.Patterns.Invoke.Pattern.Invoke(), InvokeTimeout);
-            Observe(shadow, window.Element, entry.Pid ?? 0, entry.Hwnd ?? 0, entry.Title);
-            pending.Complete(entry.Id, error == null, error);
+            if (error != null) { shadow.Button = null; shadow.Record.PressedButton = null; }
+            try { Observe(shadow, window.Element, entry.Pid ?? 0, entry.Hwnd ?? 0, entry.Title); }
+            catch (Exception exception) { Console.Error.WriteLine("outcome logging failed: " + exception.Message); }
+            CompleteWithRetry(entry.Id, error == null, error);
+        }
+
+        // The button is already pressed (or not) by now, so the entry must not stay "applying" because the store was busy.
+        private void CompleteWithRetry(string id, bool pressed, string? note)
+        {
+            for (var attempt = 1; ; attempt++)
+            {
+                try { pending.Complete(id, pressed, note); return; }
+                catch (TimeoutException) when (attempt < 3) { }
+            }
         }
 
         private sealed class Candidate
@@ -155,6 +167,12 @@ namespace RevitHarness.DialogWatcher
             AutomationElement[] windows;
             try { windows = automation.GetDesktop().FindAllChildren(c => c.ByControlType(ControlType.Window)); }
             catch (Exception ex) { Console.Error.WriteLine("desktop enumeration failed: " + ex); return null; }
+            try { return CollectCandidates(windows, result); }
+            catch (Exception ex) { Console.Error.WriteLine("window enumeration failed: " + ex); return null; }
+        }
+
+        private List<Candidate> CollectCandidates(AutomationElement[] windows, List<Candidate> result)
+        {
             var seenPids = new HashSet<int>();
             foreach (var w in windows)
             {
@@ -163,7 +181,7 @@ namespace RevitHarness.DialogWatcher
                 seenPids.Add(pid);
                 var name = ProcessName(pid);
                 if (name == null) continue;
-                var isReporter = ErrorReporterProcesses.Contains(name, StringComparer.OrdinalIgnoreCase);
+                var isReporter = options.Pid == null && ErrorReporterProcesses.Contains(name, StringComparer.OrdinalIgnoreCase);
                 var isRevit = name.Equals("Revit", StringComparison.OrdinalIgnoreCase) && (options.Pid == null || options.Pid == pid);
                 if (!isReporter && !isRevit && !options.ExtraPids.Contains(pid)) continue;
                 if (isRevit && IsMainWindow(w, pid))
@@ -178,11 +196,8 @@ namespace RevitHarness.DialogWatcher
             return result;
         }
 
-        private static AutomationElement[] OwnedWindows(AutomationElement main)
-        {
-            try { return main.FindAllChildren(c => c.ByControlType(ControlType.Window)); }
-            catch { return Array.Empty<AutomationElement>(); }
-        }
+        private static AutomationElement[] OwnedWindows(AutomationElement main) =>
+            main.FindAllChildren(c => c.ByControlType(ControlType.Window));
 
         private static bool IsMainWindow(AutomationElement w, int pid)
         {
@@ -212,12 +227,19 @@ namespace RevitHarness.DialogWatcher
             catch { return string.Empty; }
         }
 
+        private void RegisterPending(DialogInfo info, string reason, string? screenshot, string? dump, long hwnd, int pid)
+        {
+            var open = PendingStore.From(info, DialogSource.Watcher, pid, hwnd, screenshot, dump, null, null, reason);
+            pending.Register(open);
+        }
+
         private void Handle(AutomationElement window, string processName, int pid)
         {
             var info = DialogCollector.Collect(window, processName);
             if (info.ButtonDetails.Count == 0) return;
             long hwnd = window.Properties.NativeWindowHandle.ValueOrDefault.ToInt64();
-            var signature = info.Title + "\u0001" + info.Text + "\u0001" + string.Join("|", info.Buttons) + "\u0001" + AllowlistStamp();
+            var signature = info.Title + "\u0001" + info.Text + "\u0001" + string.Join("|", info.Buttons) + "\u0001" + AllowlistStamp() +
+                "\u0001" + RuntimeIdOf(window);
             if (handled.TryGetValue(hwnd, out var seen) && seen == signature) return;
             handled[hwnd] = signature;
             Processed++;
@@ -229,17 +251,32 @@ namespace RevitHarness.DialogWatcher
             var dump = known != null && !known.NoLearn ? null : UiaDump.Write(window, options.DumpsDirectory, stamp);
 
             var decision = decider.Decide(info, DialogSource.Watcher, shot, dump, hwnd, pid);
+            // The decider failed before it could press or register anything: look at the dialog again on the next scan.
+            if (!decision.ShouldPress && decision.PendingId == null) { handled.Remove(hwnd); return; }
             if (!decision.ShouldPress) return;
-            if (decision.Button == null) { Note(decision, "skipped", "result-code action cannot be pressed through UI Automation"); return; }
+            if (decision.Button == null) { Skipped(decision, info, "result-code action cannot be pressed through UI Automation", shot, dump, hwnd, pid); return; }
             if (options.DryRun) { Note(decision, "dry-run", "would press '" + decision.Button.Name + "'"); return; }
             var target = DialogCollector.FindButton(window, decision.Button);
-            if (target == null) { Note(decision, "skipped", "button not found in the live window"); return; }
-            if (!target.Patterns.Invoke.IsSupported) { Note(decision, "skipped", "button does not support Invoke; not pressed"); return; }
+            if (target == null) { Skipped(decision, info, "button not found in the live window", shot, dump, hwnd, pid); return; }
+            if (!target.Patterns.Invoke.IsSupported) { Skipped(decision, info, "button does not support Invoke; not pressed", shot, dump, hwnd, pid); return; }
 
             var error = InvokeGuard.Run(() => target.Patterns.Invoke.Pattern.Invoke(), InvokeTimeout);
-            if (error != null) Note(decision, "invoke-error", error);
-            else pending.SupersedeApiEntries(pid, "watcher " + decision.Record.LogId);
+            if (error != null) { Skipped(decision, info, error, shot, dump, hwnd, pid); return; }
+            pending.SupersedeApiEntries(pid, "watcher " + decision.Record.LogId);
             Observe(decision, window, pid, hwnd, info.Title);
+        }
+
+        // A rule matched but the button could not be pressed: leave the dialog visible to the caller as a pending entry.
+        private void Skipped(DialogDecision decision, DialogInfo info, string why, string? shot, string? dump, long hwnd, int pid)
+        {
+            Note(decision, "skipped", why);
+            RegisterPending(info, "rule " + decision.Record.MatchedRuleId + " matched but could not be applied: " + why, shot, dump, hwnd, pid);
+        }
+
+        private static string RuntimeIdOf(AutomationElement window)
+        {
+            try { return string.Join(".", window.Properties.RuntimeId.ValueOrDefault ?? Array.Empty<int>()); }
+            catch { return string.Empty; }
         }
 
         private void Observe(DialogDecision decision, AutomationElement window, int pid, long hwnd, string? title)

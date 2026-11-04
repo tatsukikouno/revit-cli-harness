@@ -156,7 +156,8 @@ The same `(panel.Name, name)` updates and rebinds a button. Revit cannot remove 
 permanent `TargetSlot0`–`TargetSlot7` stubs in the harness delegate to the current generation
 (maximum eight distinct buttons). Target OnShutdown must unregister updaters, unsubscribe
 events, dispose ExternalEvent and timers, and stop background work. net48 old generations
-remain until Revit exits; net8/net10 ALC release is cooperative and reported in results.
+remain until Revit exits; net8/net10 ALC release is cooperative and reported in results. WPF memoizes Assembly to AssemblyName in static caches
+(`SafeSecurityHelper._assemblies`) on any pack URI or XAML lookup; disposing a net8/net10 generation evicts its assemblies from them.
 Native DLLs are unsupported; byte-loaded Assembly.Location is empty.
 See `samples/SampleTarget/README.md` and the `revit-harness-reload` skill for verification.
 

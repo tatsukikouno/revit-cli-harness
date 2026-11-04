@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -184,7 +185,43 @@ namespace RevitHarness.Addin.Ipc
                 LoadedAssembly = null;
                 var context = _context;
                 _context = null;
-                context?.Unload();
+                if (context == null) return;
+                var assemblies = context.Assemblies.ToArray();
+                context.Unload();
+                WpfAssemblyNameCache.Evict(assemblies);
+            }
+        }
+
+        // WPF resolves pack URIs and XAML namespaces by walking AppDomain assemblies and memoizes each Assembly -> AssemblyName
+        // in static dictionaries that are never pruned. Any such lookup while a generation is live pins its collectible context.
+        internal static class WpfAssemblyNameCache
+        {
+            private static readonly (string Assembly, string Type)[] Owners =
+            {
+                ("WindowsBase", "MS.Internal.WindowsBase.SafeSecurityHelper"),
+                ("PresentationCore", "MS.Internal.PresentationCore.SafeSecurityHelper"),
+                ("System.Xaml", "System.Xaml.SafeSecurityHelper")
+            };
+
+            internal static Func<IEnumerable<IDictionary>> Source { get; set; } = FindWpfCaches;
+
+            internal static void Evict(IEnumerable<Assembly> assemblies)
+            {
+                var targets = assemblies.ToArray();
+                foreach (var cache in Source())
+                    lock (cache)
+                        foreach (var assembly in targets) cache.Remove(assembly);
+            }
+
+            private static IEnumerable<IDictionary> FindWpfCaches()
+            {
+                var loaded = AppDomain.CurrentDomain.GetAssemblies();
+                foreach (var (assemblyName, typeName) in Owners)
+                {
+                    var assembly = loaded.FirstOrDefault(a => a.GetName().Name == assemblyName);
+                    var field = assembly?.GetType(typeName)?.GetField("_assemblies", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+                    if (field?.GetValue(null) is IDictionary cache) yield return cache;
+                }
             }
         }
 

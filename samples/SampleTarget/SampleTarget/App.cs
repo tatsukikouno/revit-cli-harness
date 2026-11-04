@@ -25,11 +25,15 @@ namespace SampleTarget
 
         public Result OnStartup(UIControlledApplication application)
         {
-            try { application.CreateRibbonTab("SampleTarget"); }
-            catch (Autodesk.Revit.Exceptions.ArgumentException) { }
-            var panel = application.GetRibbonPanels("SampleTarget").FirstOrDefault(p => p.Name == "Sample")
-                ?? application.CreateRibbonPanel("SampleTarget", "Sample");
-            TargetRibbon.AddPushButton(panel, "Hello", $"Hello {TargetLog.Tag}", typeof(HelloCommand).FullName!);
+            if (TargetLog.Features.Contains("panel"))
+            {
+                try { application.CreateRibbonTab("SampleTarget"); }
+                catch (Autodesk.Revit.Exceptions.ArgumentException) { }
+                var panel = application.GetRibbonPanels("SampleTarget").FirstOrDefault(p => p.Name == "Sample")
+                    ?? application.CreateRibbonPanel("SampleTarget", "Sample");
+                if (TargetLog.Features.Contains("button"))
+                    TargetRibbon.AddPushButton(panel, "Hello", $"Hello {TargetLog.Tag}", typeof(HelloCommand).FullName!);
+            }
             if (TargetLog.Features.Contains("updater"))
             {
                 var updater = new SampleUpdater(application.ActiveAddInId);

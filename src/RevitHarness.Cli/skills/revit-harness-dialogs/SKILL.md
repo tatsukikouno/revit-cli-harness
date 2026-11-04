@@ -42,7 +42,7 @@ pending dialogs whenever a command seems stuck or times out.
 
 ```bash
 revit-harness dialog-pending [--all]
-revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by "<your name>" [--save-rule] [--force] [--timeout <ms>]
+revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by "<your name>" [--save-rule] [--timeout <ms>]
 ```
 
 1. Read `title`, `bodySummary` and the screenshot at `screenshotPath`.
@@ -56,21 +56,31 @@ A dialog that disappears before the decision is marked `stale` and cannot be dec
 ### Saving a rule
 
 `--save-rule` also writes an allowlist rule so the same dialog is answered automatically next
-time. Only reversible buttons are saved (OK, Cancel, Close); `--force` extends that to other
-buttons, so use it only when you are sure. "Always Load" and "Do Not Load" are never learned,
-and nothing is learned from a dialog covered by a `noLearn` rule.
+time. Only reversible buttons are saved (OK, Cancel, Close); the button is still pressed for
+any other choice, but no rule is written (add one by hand if you really want it). "Always Load"
+and "Do Not Load" are never learned, and nothing is learned from a dialog covered by a
+`noLearn` rule.
 
 ### Unsigned add-in dialog
 
-"Security - Unsigned Add-in" is answered only by a rule with a `match.addIn` condition. It is a
-plain string compared case-insensitively against the add-in name, the dll path and the dll file
-name:
+"Security - Unsigned Add-in" is answered only by a rule with a `match.addIn` condition; a rule
+with `addIn` never matches any other dialog. It is a plain string (not a pattern object),
+compared case-insensitively. A value containing a path separator is compared with the dll path
+only; any other value is compared with the add-in name and the dll file name.
 
 - no `*`: exact match
-- trailing `*` (for example `Contoso.*`): prefix match
-- a lone `*`: every add-in, including unknown unsigned ones, so use it deliberately
+- trailing `*` (for example `Contoso.*`): prefix match; any other `*` is literal, there is no regex
+- a lone `*`: every unsigned add-in, including unknown ones, so use it deliberately
 
-Add-ins without a matching rule become pending for you to decide.
+Add-ins without a matching rule become pending for you to decide. Example rule (adjust the
+title and button labels to the Revit display language):
+
+```json
+{ "id": "known-addin", "enabled": true, "target": "watcher",
+  "match": { "title": { "value": "Security - Unsigned Add-in", "mode": "equals", "ignoreCase": true },
+             "addIn": "Contoso.*" },
+  "action": { "buttonName": "Load Once" }, "noLearn": false, "createdBy": "manual" }
+```
 
 ## Testing code that provokes dialogs
 
@@ -78,7 +88,8 @@ If you write a test that deliberately triggers a dialog, add a rule with `"noLea
 that dialog to `%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json` (then
 `revit-harness reload-allowlist`). It is never auto-pressed or learned and always reaches the
 caller as pending. Set it only on your own test targets, never on dialogs you did not cause.
-See `samples/allowlist.sample.json` in the repository for the rule format.
+The rule has the same shape as the example above, with `match.title` set to your test
+dialog's title and `"noLearn": true`.
 
 ## When done
 

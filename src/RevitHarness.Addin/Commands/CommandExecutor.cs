@@ -137,12 +137,14 @@ namespace RevitHarness.Addin.Commands
                     _log($"Command completed with result: {result}");
 
                     _shadowCopier.Cleanup();
+                    var resultText = string.IsNullOrEmpty(message)
+                        ? $"Result: {result}"
+                        : $"Result: {result}\n{message}";
                     return new CommandExecutionResult
                     {
-                        Success = true,
-                        ResultText = string.IsNullOrEmpty(message)
-                            ? $"Result: {result}"
-                            : $"Result: {result}\n{message}"
+                        Success = result == Result.Succeeded,
+                        ResultText = resultText,
+                        ErrorMessage = result == Result.Succeeded ? null : resultText
                     };
                 }
 

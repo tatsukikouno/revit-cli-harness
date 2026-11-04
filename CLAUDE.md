@@ -46,7 +46,7 @@ dotnet pack src/RevitHarness.Contracts -c Release
 dotnet pack src/RevitHarness.Cli -c Release
 ```
 
-**Important**: `RevitHarness.Cli` builds the Addin for `R24`/`R25`/`R26`/`R27` and `RevitHarness.DialogWatcher` itself (target `BundleAddinAndWatcher` in `RevitHarness.Cli.csproj`) and embeds the results, so `dotnet build src/RevitHarness.Cli` and a plain `dotnet pack src/RevitHarness.Cli -c Release` need no earlier build step. Each year restores into its own `obj\R24|R25|R26` directory (`src/RevitHarness.Addin/Directory.Build.props`), and the target removes the inherited `TargetFramework` global property: `dotnet pack` re-enters the CLI project with `TargetFramework=net8.0`, which otherwise overrides the Addin's per-year TFM and fails with NETSDK1136.
+**Important**: `RevitHarness.Cli` builds the Addin for `R24`/`R25`/`R26`/`R27` and `RevitHarness.DialogWatcher` itself (target `BundleAddinAndWatcher` in `RevitHarness.Cli.csproj`) and embeds the results, so `dotnet build src/RevitHarness.Cli` and a plain `dotnet pack src/RevitHarness.Cli -c Release` need no earlier build step. Each year restores into its own `obj\R24|R25|R26|R27` directory (`src/RevitHarness.Addin/Directory.Build.props`), and the target removes the inherited `TargetFramework` global property: `dotnet pack` re-enters the CLI project with `TargetFramework=net10.0`, which otherwise overrides the Addin's per-year TFM and fails with NETSDK1136.
 
 ## Project Structure
 
@@ -89,8 +89,8 @@ lib/LookupEngine/                    # External library used by RevitHarness.Loo
 ## Development Notes
 
 - **Target Frameworks**: Addin/Lookup = net48 (R24) / net8.0-windows (R25, R26) / net10.0-windows (R27); Contracts = net48;net8.0-windows;net10.0-windows; CLI = net10.0; DialogWatcher = net10.0-windows
-- **LookupEngine vendoring**: `lib/LookupEngine/{net48,net8.0-windows,net10.0-windows}/` holds `LookupEngine.dll` + `LookupEngine.Abstractions.dll`, extracted from an installed RevitLookup add-in for the matching Revit year (not published to NuGet.org, so there's no package to reference). To refresh, copy the two DLLs from `%PROGRAMDATA%\Autodesk\Revit\Addins\{year}\RevitLookup\` into the matching TFM subfolder.
-- **Revit References**: RevitAPI.dll and RevitAPIUI.dll from `C:\Program Files\Autodesk\Revit 2024\` (referenced with `Private=False`)
+- **LookupEngine vendoring**: `lib/LookupEngine/{net48,net8.0-windows,net10.0-windows}/` holds `LookupEngine.dll` + `LookupEngine.Abstractions.dll`, extracted from the RevitLookup release for the matching Revit year (2024: 2024.3.x, 2025/2026: 2026.1.x, 2027: 2027.0.4) (not published to NuGet.org, so there's no package to reference). To refresh, copy the two DLLs from `%PROGRAMDATA%\Autodesk\Revit\Addins\{year}\RevitLookup\` into the matching TFM subfolder.
+- **Revit References**: `Nice3point.Revit.Api.RevitAPI`/`RevitAPIUI` NuGet reference assemblies per year (see `Directory.Packages.props`)
 - **C# Language Version**: 9.0 with nullable enabled, warnings as errors (see `Directory.Build.props`)
 - **Central Package Management**: Versions in `Directory.Packages.props`
 - **Debug**: Addin project configured to launch Revit.exe directly

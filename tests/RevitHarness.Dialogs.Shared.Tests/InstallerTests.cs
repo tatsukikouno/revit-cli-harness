@@ -23,14 +23,16 @@ namespace RevitHarness.Dialogs.Shared.Tests
             File.WriteAllText(Path.Combine(bundle, "skills", "skill-b", "SKILL.md"), "b");
 
             _layout = new InstallLayout(
-                Path.Combine(_root, "appdata"), Path.Combine(_root, "local"), Path.Combine(_root, "skills"), bundle);
+                Path.Combine(_root, "appdata"), Path.Combine(_root, "local"), Path.Combine(_root, "skills"), bundle, new[] { Path.Combine(_root, "dotnet") });
             Directory.CreateDirectory(_layout.AddinsFolder(2024));
             Directory.CreateDirectory(_layout.AddinsFolder(2025));
         }
 
         public void Dispose() => Directory.Delete(_root, recursive: true);
 
-        private RevitInstaller NewInstaller() => new RevitInstaller(_layout);
+        private bool _revitRunning;
+
+        private RevitInstaller NewInstaller() => new RevitInstaller(_layout, new WatcherControl(_layout), () => _revitRunning);
 
         [Fact]
         public void Install_places_addin_watcher_and_skills()
@@ -102,12 +104,49 @@ namespace RevitHarness.Dialogs.Shared.Tests
                 pid => pid == 4242 && !File.Exists(_layout.StopFile) ? "RevitHarness.DialogWatcher" : null,
                 _ => throw new InvalidOperationException("must not spawn"));
 
-            var result = new RevitInstaller(_layout, watcher).Install(2024);
+            var result = new RevitInstaller(_layout, watcher, () => false).Install(2024);
 
             Assert.True(result.Success, result.Message);
             Assert.Contains("stopped", result.Message);
             Assert.Equal("exe-v1", File.ReadAllText(_layout.WatcherExe));
             Assert.False(File.Exists(_layout.StopFile));
+        }
+
+        [Fact]
+        public void Install_and_uninstall_refuse_while_revit_is_running()
+        {
+            Assert.True(NewInstaller().Install(2024).Success);
+            File.WriteAllText(Path.Combine(_layout.InstallationFolder(2024), "RevitHarness.Addin.dll"), "loaded-by-revit");
+            _revitRunning = true;
+
+            var install = NewInstaller().Install(2024);
+            var uninstall = NewInstaller().Uninstall(2024);
+
+            Assert.False(install.Success);
+            Assert.Contains("Close Revit", install.Message);
+            Assert.False(uninstall.Success);
+            Assert.Contains("Close Revit", uninstall.Message);
+            Assert.Equal("loaded-by-revit", File.ReadAllText(Path.Combine(_layout.InstallationFolder(2024), "RevitHarness.Addin.dll")));
+            Assert.True(File.Exists(_layout.ManifestPath(2024)));
+        }
+
+        [Fact]
+        public void Install_and_uninstall_fail_clearly_while_another_operation_holds_the_lock()
+        {
+            using (OperationLock.TryAcquire(_layout))
+            {
+                var install = NewInstaller().Install(2024);
+                var uninstall = NewInstaller().Uninstall(2024);
+
+                Assert.False(install.Success);
+                Assert.Equal(OperationLock.BusyMessage, install.Message);
+                Assert.False(uninstall.Success);
+                Assert.Equal(OperationLock.BusyMessage, uninstall.Message);
+                Assert.False(File.Exists(_layout.ManifestPath(2024)));
+            }
+
+            Assert.True(NewInstaller().Install(2024).Success);
+            Assert.True(NewInstaller().Install(2024).Success);
         }
 
         [Fact]
@@ -169,10 +208,16 @@ namespace RevitHarness.Dialogs.Shared.Tests
 
         public WatcherControlTests()
         {
-            _layout = new InstallLayout(Path.Combine(_root, "appdata"), Path.Combine(_root, "local"), Path.Combine(_root, "skills"), Path.Combine(_root, "bundle"));
+            _layout = new InstallLayout(Path.Combine(_root, "appdata"), Path.Combine(_root, "local"), Path.Combine(_root, "skills"), Path.Combine(_root, "bundle"), new[] { Path.Combine(_root, "dotnet") });
             Directory.CreateDirectory(_layout.WatcherDir);
             File.WriteAllText(_layout.WatcherExe, "exe");
+            File.WriteAllText(Path.Combine(_layout.WatcherDir, "RevitHarness.DialogWatcher.runtimeconfig.json"),
+                "{\"runtimeOptions\":{\"frameworks\":[{\"name\":\"Microsoft.NETCore.App\",\"version\":\"8.0.0\"},{\"name\":\"Microsoft.WindowsDesktop.App\",\"version\":\"8.0.0\"}]}}");
+            InstallDesktopRuntime("8.0.11");
         }
+
+        private void InstallDesktopRuntime(string version) =>
+            Directory.CreateDirectory(Path.Combine(_root, "dotnet", "shared", "Microsoft.WindowsDesktop.App", version));
 
         public void Dispose() => Directory.Delete(_root, recursive: true);
 
@@ -231,6 +276,47 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.True(result.Ok, result.Message);
             Assert.Equal(1, spawns);
             Assert.Equal(55, result.State.Pid);
+        }
+
+        [Fact]
+        public void Start_names_the_missing_desktop_runtime_and_does_not_spawn()
+        {
+            Directory.Delete(Path.Combine(_root, "dotnet"), recursive: true);
+            InstallDesktopRuntime("6.0.36");
+            var control = new WatcherControl(_layout, _ => null, _ => throw new InvalidOperationException("must not spawn"));
+
+            var result = control.Start();
+
+            Assert.False(result.Ok);
+            Assert.Contains(".NET 8 Desktop Runtime", result.Message);
+            Assert.Contains("Microsoft.WindowsDesktop.App 8.0.0", result.Message);
+            Assert.Contains("https://dotnet.microsoft.com/download/dotnet/8.0", result.Message);
+        }
+
+        [Fact]
+        public void Start_accepts_a_newer_patch_of_the_same_major_runtime()
+        {
+            var control = new WatcherControl(_layout, pid => pid == 9 ? WatcherName : null, _ => { WritePid(9); return 9; });
+
+            Assert.True(control.Start().Ok);
+        }
+
+        [Fact]
+        public void Start_and_stop_fail_clearly_while_another_operation_holds_the_lock()
+        {
+            var control = new WatcherControl(_layout, _ => null, _ => throw new InvalidOperationException("must not spawn"));
+            using (OperationLock.TryAcquire(_layout))
+            {
+                var start = control.Start();
+                WritePid(4242);
+                var stop = new WatcherControl(_layout, pid => pid == 4242 ? WatcherName : null, _ => 0).Stop();
+
+                Assert.False(start.Ok);
+                Assert.Equal(OperationLock.BusyMessage, start.Message);
+                Assert.False(stop.Ok);
+                Assert.Equal(OperationLock.BusyMessage, stop.Message);
+                Assert.False(File.Exists(_layout.StopFile));
+            }
         }
 
         [Fact]

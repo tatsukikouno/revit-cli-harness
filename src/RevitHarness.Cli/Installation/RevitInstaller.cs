@@ -20,16 +20,36 @@ namespace RevitHarness.Cli.Installation
 
         private readonly InstallLayout _layout;
         private readonly WatcherControl _watcher;
+        private readonly Func<bool> _isRevitRunning;
 
         public RevitInstaller(InstallLayout layout)
-            : this(layout, new WatcherControl(layout))
+            : this(layout, new WatcherControl(layout), RevitProcess.IsRunning)
         {
         }
 
-        public RevitInstaller(InstallLayout layout, WatcherControl watcher)
+        public RevitInstaller(InstallLayout layout, WatcherControl watcher, Func<bool> isRevitRunning)
         {
             _layout = layout;
             _watcher = watcher;
+            _isRevitRunning = isRevitRunning;
+        }
+
+        private const string RevitRunningMessage =
+            "Revit is running. Close Revit before running {0}: Revit holds the add-in files, so the add-in would be left half replaced.";
+
+        /// <summary>Returns the refusal message when another operation holds the lock or Revit is running.</summary>
+        private string? Refusal(string operation, out OperationLock? held)
+        {
+            held = OperationLock.TryAcquire(_layout);
+            if (held == null)
+                return OperationLock.BusyMessage;
+            if (_isRevitRunning())
+            {
+                held.Dispose();
+                held = null;
+                return string.Format(RevitRunningMessage, operation);
+            }
+            return null;
         }
 
         public bool IsInstalled(int revitVersion)
@@ -94,6 +114,15 @@ namespace RevitHarness.Cli.Installation
                 return result;
             }
 
+            var refusal = Refusal("install", out var operation);
+            if (refusal != null)
+            {
+                result.Success = false;
+                result.Message = refusal;
+                return result;
+            }
+
+            using var held = operation;
             try
             {
                 var addinsFolder = _layout.AddinsFolder(revitVersion);
@@ -137,7 +166,7 @@ namespace RevitHarness.Cli.Installation
                     return result;
                 }
 
-                var stopped = _watcher.Stop();
+                var stopped = _watcher.StopLocked();
                 if (!stopped.Ok)
                 {
                     result.Success = false;
@@ -204,6 +233,15 @@ namespace RevitHarness.Cli.Installation
         {
             var result = new UninstallResult { RevitVersion = revitVersion };
 
+            var refusal = Refusal("uninstall", out var operation);
+            if (refusal != null)
+            {
+                result.Success = false;
+                result.Message = refusal;
+                return result;
+            }
+
+            using var held = operation;
             try
             {
                 var removedFiles = new List<string>();
@@ -224,7 +262,7 @@ namespace RevitHarness.Cli.Installation
 
                 if (!SupportedRevitVersions.Any(IsInstalled))
                 {
-                    var stopped = _watcher.Stop();
+                    var stopped = _watcher.StopLocked();
                     if (!stopped.Ok)
                     {
                         result.Success = false;

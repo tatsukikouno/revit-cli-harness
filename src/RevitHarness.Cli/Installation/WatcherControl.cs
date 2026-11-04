@@ -67,12 +67,20 @@ namespace RevitHarness.Cli.Installation
 
         public WatcherResult Start()
         {
+            using var operation = OperationLock.TryAcquire(_layout);
+            if (operation == null)
+                return Result(false, OperationLock.BusyMessage);
+
             var running = ReadRunningPid();
             if (running.HasValue)
                 return Result(true, $"already running (pid {running})");
 
             if (!File.Exists(_layout.WatcherExe))
                 return Result(false, $"watcher is not installed: {_layout.WatcherExe} not found. Run 'revit-harness install' first.");
+
+            var missingRuntime = DesktopRuntime.MissingMessage(_layout.WatcherDir, _layout.DotnetRoots);
+            if (missingRuntime != null)
+                return Result(false, missingRuntime);
 
             int spawned;
             try { spawned = _spawn(_layout.WatcherExe); }
@@ -92,10 +100,19 @@ namespace RevitHarness.Cli.Installation
             var final = ReadRunningPid();
             if (final.HasValue)
                 return Result(true, $"already running (pid {final})");
-            return Result(false, $"the watcher did not stay running. Another instance may hold the session lock, or the .NET 8 Desktop Runtime may be missing; check {_layout.DialogsDir}");
+            return Result(false, $"the watcher did not stay running. Another instance may hold the session lock; check {_layout.DialogsDir}");
         }
 
         public WatcherResult Stop()
+        {
+            using var operation = OperationLock.TryAcquire(_layout);
+            if (operation == null)
+                return Result(false, OperationLock.BusyMessage);
+            return StopLocked();
+        }
+
+        /// <summary>Stops the watcher for a caller that already holds the <see cref="OperationLock"/>.</summary>
+        public WatcherResult StopLocked()
         {
             var pid = ReadRunningPid();
             if (!pid.HasValue)

@@ -2,6 +2,7 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using RevitHarness.Dialogs;
 
 namespace RevitHarness.Cli.Installation
@@ -14,18 +15,20 @@ namespace RevitHarness.Cli.Installation
     {
         public const string WatcherExeName = "RevitHarness.DialogWatcher.exe";
 
-        public InstallLayout(string appData, string localAppData, string skillsDir, string bundleRoot)
+        public InstallLayout(string appData, string localAppData, string skillsDir, string bundleRoot, string[] dotnetRoots)
         {
             AppData = appData;
             LocalAppData = localAppData;
             SkillsDir = skillsDir;
             BundleRoot = bundleRoot;
+            DotnetRoots = dotnetRoots;
         }
 
         public string AppData { get; }
         public string LocalAppData { get; }
         public string SkillsDir { get; }
         public string BundleRoot { get; }
+        public string[] DotnetRoots { get; }
 
         public static InstallLayout Create(string? skillsDir)
         {
@@ -34,7 +37,9 @@ namespace RevitHarness.Cli.Installation
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 skillsDir ?? Path.Combine(profile, ".claude", "skills"),
-                AppContext.BaseDirectory);
+                AppContext.BaseDirectory,
+                new[] { Environment.GetEnvironmentVariable("DOTNET_ROOT"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet") }
+                    .Where(root => !string.IsNullOrEmpty(root)).ToArray()!);
         }
 
         public string AddinsRoot => Path.Combine(AppData, "Autodesk", "Revit", "Addins");
@@ -46,6 +51,7 @@ namespace RevitHarness.Cli.Installation
         public string WatcherExe => Path.Combine(WatcherDir, WatcherExeName);
         public string DialogsDir => DialogPaths.GetDirectory(LocalAppData);
         public string PidFile => Path.Combine(DialogsDir, "watcher.pid");
+        public string LockFile => Path.Combine(LocalAppData, "RevitHarness", "operation.lock");
         public string StopFile => Path.Combine(DialogsDir, "watcher.stop");
 
         public string BundledWatcherDir => Path.Combine(BundleRoot, "watcher");

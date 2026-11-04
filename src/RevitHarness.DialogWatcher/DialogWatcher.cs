@@ -109,7 +109,7 @@ namespace RevitHarness.DialogWatcher
             }
             if (window == null)
             {
-                if (entry.Status == PendingStatus.DecisionRequested || DateTimeOffset.UtcNow - entry.UpdatedAt > StaleGrace)
+                if (DateTimeOffset.UtcNow - entry.UpdatedAt > StaleGrace)
                     pending.MarkStale(entry.Id, "dialog closed before a decision was applied");
                 return;
             }

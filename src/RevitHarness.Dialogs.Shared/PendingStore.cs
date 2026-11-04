@@ -191,7 +191,8 @@ namespace RevitHarness.Dialogs
         private bool WithdrawLocked(string id) => Locked(() =>
         {
             var pending = Get(id);
-            if (pending == null || pending.Status == PendingStatus.Pending) return true;
+            if (pending == null) return false;
+            if (pending.Status == PendingStatus.Pending) return true;
             if (pending.Status != PendingStatus.DecisionRequested) return false;
             pending.Status = PendingStatus.Pending;
             pending.Decision = null;

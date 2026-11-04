@@ -211,7 +211,12 @@ Exit codes:
                             revitVersion = v;
                         break;
                     case "--skills-dir":
-                        skillsDir = i + 1 < args.Length ? args[++i] : null;
+                        if (i + 1 >= args.Length)
+                        {
+                            Console.Error.WriteLine("Error: --skills-dir needs a path");
+                            return ExitFailure;
+                        }
+                        skillsDir = Path.GetFullPath(args[++i]);
                         break;
                 }
             }
@@ -261,7 +266,12 @@ Exit codes:
                             revitVersion = v;
                         break;
                     case "--skills-dir":
-                        skillsDir = i + 1 < args.Length ? args[++i] : null;
+                        if (i + 1 >= args.Length)
+                        {
+                            Console.Error.WriteLine("Error: --skills-dir needs a path");
+                            return ExitFailure;
+                        }
+                        skillsDir = Path.GetFullPath(args[++i]);
                         break;
                 }
             }

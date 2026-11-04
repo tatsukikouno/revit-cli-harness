@@ -77,6 +77,40 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
+        public void Same_named_skill_not_installed_by_us_is_neither_replaced_nor_removed()
+        {
+            var foreign = Path.Combine(_layout.SkillsDir, "skill-a");
+            Directory.CreateDirectory(foreign);
+            File.WriteAllText(Path.Combine(foreign, "SKILL.md"), "mine");
+
+            var install = NewInstaller().Install(2024);
+            var uninstall = NewInstaller().Uninstall(2024);
+
+            Assert.False(install.Success);
+            Assert.Contains("skill-a", install.Message);
+            Assert.False(File.Exists(_layout.ManifestPath(2024)));
+            Assert.True(uninstall.Success);
+            Assert.Equal("mine", File.ReadAllText(Path.Combine(foreign, "SKILL.md")));
+        }
+
+        [Fact]
+        public void Install_stops_a_running_watcher_before_replacing_it()
+        {
+            Directory.CreateDirectory(_layout.DialogsDir);
+            File.WriteAllText(_layout.PidFile, "4242");
+            var watcher = new WatcherControl(_layout,
+                pid => pid == 4242 && !File.Exists(_layout.StopFile) ? "RevitHarness.DialogWatcher" : null,
+                _ => throw new InvalidOperationException("must not spawn"));
+
+            var result = new RevitInstaller(_layout, watcher).Install(2024);
+
+            Assert.True(result.Success, result.Message);
+            Assert.Contains("stopped", result.Message);
+            Assert.Equal("exe-v1", File.ReadAllText(_layout.WatcherExe));
+            Assert.False(File.Exists(_layout.StopFile));
+        }
+
+        [Fact]
         public void Install_fails_without_bundle()
         {
             Directory.Delete(_layout.BundledWatcherDir, recursive: true);

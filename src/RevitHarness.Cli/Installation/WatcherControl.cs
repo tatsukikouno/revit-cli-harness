@@ -19,6 +19,7 @@ namespace RevitHarness.Cli.Installation
     public sealed class WatcherResult
     {
         public bool Ok { get; set; }
+        public bool Stopped { get; set; }
         public string Message { get; set; } = string.Empty;
         public WatcherState State { get; set; } = new WatcherState();
     }
@@ -30,7 +31,6 @@ namespace RevitHarness.Cli.Installation
     public sealed class WatcherControl
     {
         private const string ProcessName = "RevitHarness.DialogWatcher";
-        private const int MutexHeldExitCode = 3;
         private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
 
@@ -92,7 +92,7 @@ namespace RevitHarness.Cli.Installation
             var final = ReadRunningPid();
             if (final.HasValue)
                 return Result(true, $"already running (pid {final})");
-            return Result(false, $"the watcher did not stay running (exit code {MutexHeldExitCode} means another instance holds the session lock); check {_layout.DialogsDir}");
+            return Result(false, $"the watcher did not stay running. Another instance may hold the session lock, or the .NET 8 Desktop Runtime may be missing; check {_layout.DialogsDir}");
         }
 
         public WatcherResult Stop()
@@ -105,30 +105,45 @@ namespace RevitHarness.Cli.Installation
             File.WriteAllText(_layout.StopFile, "stop");
             try
             {
-                var deadline = DateTime.UtcNow + StopTimeout;
-                while (DateTime.UtcNow < deadline && ReadRunningPid().HasValue)
-                    Thread.Sleep(100);
-
-                var stillRunning = ReadRunningPid();
-                if (!stillRunning.HasValue)
-                    return Result(true, $"stopped (pid {pid})");
+                if (WaitForExit(pid.Value))
+                    return Result(true, $"stopped (pid {pid})", stopped: true);
 
                 try
                 {
-                    using var process = Process.GetProcessById(stillRunning.Value);
+                    using var process = Process.GetProcessById(pid.Value);
                     process.Kill();
-                    process.WaitForExit((int)StopTimeout.TotalMilliseconds);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is System.ComponentModel.Win32Exception)
                 {
-                    return Result(false, $"could not stop the watcher (pid {stillRunning}): {ex.Message}");
+                    if (!IsWatcher(pid.Value))
+                        return Result(true, $"stopped (pid {pid})", stopped: true);
+                    return Result(false, $"could not stop the watcher (pid {pid}): {ex.Message}");
                 }
-                return Result(true, $"killed after timeout (pid {pid})");
+
+                return WaitForExit(pid.Value)
+                    ? Result(true, $"killed after timeout (pid {pid})", stopped: true)
+                    : Result(false, $"the watcher (pid {pid}) is still running after being killed");
             }
             finally
             {
                 try { File.Delete(_layout.StopFile); } catch (IOException) { }
             }
+        }
+
+        private bool IsWatcher(int pid) => _processName(pid) == ProcessName;
+
+        // The process itself, not the pid file, is the exit signal: the pid file goes away
+        // before the exe is unmapped, and install deletes that exe next.
+        private bool WaitForExit(int pid)
+        {
+            var deadline = DateTime.UtcNow + StopTimeout;
+            while (IsWatcher(pid))
+            {
+                if (DateTime.UtcNow >= deadline)
+                    return false;
+                Thread.Sleep(100);
+            }
+            return true;
         }
 
         private int? ReadRunningPid()
@@ -143,8 +158,8 @@ namespace RevitHarness.Cli.Installation
             return _processName(pid) == ProcessName ? pid : (int?)null;
         }
 
-        private WatcherResult Result(bool ok, string message) =>
-            new WatcherResult { Ok = ok, Message = message, State = GetState() };
+        private WatcherResult Result(bool ok, string message, bool stopped = false) =>
+            new WatcherResult { Ok = ok, Message = message, Stopped = stopped, State = GetState() };
 
         private static string? NameOfProcess(int pid)
         {

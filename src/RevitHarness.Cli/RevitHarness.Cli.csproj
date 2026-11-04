@@ -63,6 +63,7 @@
        (same configuration, -p:Platform=x64) before packing. -->
   <PropertyGroup>
     <WatcherOutput>..\RevitHarness.DialogWatcher\bin\x64\$(Configuration)\net8.0-windows\</WatcherOutput>
+    <WatcherBundled Condition="Exists('$(WatcherOutput)RevitHarness.DialogWatcher.exe')">true</WatcherBundled>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="skills\**\*" Link="skills\%(RecursiveDir)%(Filename)%(Extension)"
@@ -70,10 +71,10 @@
     <Content Include="$(WatcherOutput)**\*" Exclude="$(WatcherOutput)**\*.pdb"
              Link="watcher\%(RecursiveDir)%(Filename)%(Extension)"
              Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
-             Condition="Exists('$(WatcherOutput)RevitHarness.DialogWatcher.exe')" />
+             Condition="'$(WatcherBundled)' == 'true'" />
   </ItemGroup>
   <Target Name="RequireWatcherForPack" BeforeTargets="GenerateNuspec"
-          Condition="!Exists('$(WatcherOutput)RevitHarness.DialogWatcher.exe')">
-    <Error Text="DialogWatcher build output not found at $(WatcherOutput). Build src/RevitHarness.DialogWatcher with -c $(Configuration) -p:Platform=x64 first." />
+          Condition="'$(WatcherBundled)' != 'true'">
+    <Error Text="DialogWatcher build output not found at $(WatcherOutput). Build src/RevitHarness.DialogWatcher with -c $(Configuration) -p:Platform=x64 in a separate command before building and packing the CLI." />
   </Target>
 </Project>

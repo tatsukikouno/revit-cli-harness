@@ -155,6 +155,7 @@ namespace RevitHarness.Addin.Ipc
                     catch (Exception ex) { _log($"OnShutdown after a failed OnStartup threw: {ex.Message}"); }
                 }
                 app = null;
+                if (File.Exists(_stateFile)) File.Delete(_stateFile);
                 _old.Add(generation.Lifetime);
                 generation.Dispose();
                 throw;

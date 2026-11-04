@@ -100,6 +100,7 @@ namespace RevitHarness.Addin.Ipc
         {
             private readonly Dictionary<string, Assembly> _assemblies = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
             private readonly Dictionary<string, Assembly> _hosts;
+            private static ByteGeneration? Newest;
             private ResolveEventHandler? _resolver;
             public override WeakReference Lifetime { get; }
             public override IReadOnlyCollection<Assembly> Assemblies => _assemblies.Values;
@@ -119,6 +120,7 @@ namespace RevitHarness.Addin.Ipc
                             : Assembly.Load(File.ReadAllBytes(item.Value));
                     }
                     LoadedAssembly = _assemblies[AssemblyName.GetAssemblyName(path).Name!];
+                    Newest = this;
                     Lifetime = new WeakReference(LoadedAssembly, true);
                 }
                 catch { Dispose(); throw; }
@@ -127,7 +129,11 @@ namespace RevitHarness.Addin.Ipc
             private Assembly? Resolve(object? sender, ResolveEventArgs args)
             {
                 // Resident generations can have identical identities; only the requester identifies its owner.
-                if (args.RequestingAssembly == null || !_assemblies.Values.Contains(args.RequestingAssembly)) return null;
+                // Revit 2024 can deliver static binds with a null requester; the newest generation answers those.
+                var mine = args.RequestingAssembly == null
+                    ? ReferenceEquals(Newest, this)
+                    : _assemblies.Values.Contains(args.RequestingAssembly);
+                if (!mine) return null;
                 var name = new AssemblyName(args.Name).Name!;
                 if (_assemblies.TryGetValue(name, out var owned)) return owned;
                 return _hosts.TryGetValue(name, out var host) ? host : null;
@@ -135,6 +141,7 @@ namespace RevitHarness.Addin.Ipc
 
             public override void Dispose()
             {
+                if (ReferenceEquals(Newest, this)) Newest = null;
                 if (_resolver != null) AppDomain.CurrentDomain.AssemblyResolve -= _resolver;
                 _resolver = null;
                 LoadedAssembly = null;

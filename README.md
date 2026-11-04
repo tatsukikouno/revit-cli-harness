@@ -26,20 +26,18 @@ dotnet tool install -g RevitHarness.Cli
 ### Deploying the Add-in
 
 ```bash
-# Install
+# Install: the add-in, the dialog watcher and the SKILLs (re-running overwrites cleanly)
 revit-harness install --revit-version 2024
-
-# Reinstall (overwrite with --force)
-revit-harness install --revit-version 2024 --force
+revit-harness install --revit-version 2024 --skills-dir D:\my-skills   # SKILLs elsewhere
 
 # Check status
 revit-harness status
 
-# Uninstall
+# Uninstall: the add-in; the last uninstall also removes the watcher and SKILLs
 revit-harness uninstall --revit-version 2024
 ```
 
-> Close Revit before installing or uninstalling. Restart Revit after installation to load the add-in.
+> Close Revit before installing or uninstalling. Restart Revit after installation to load the add-in. Uninstall keeps `%LOCALAPPDATA%\RevitHarness\dialogs` (allowlist, logs, pending).
 
 ### Installation Path
 
@@ -53,6 +51,8 @@ revit-harness uninstall --revit-version 2024
     ├── LookupEngine.dll
     ├── Newtonsoft.Json.dll
     └── ...
+%LOCALAPPDATA%\RevitHarness\watcher\       # dialog watcher
+%USERPROFILE%\.claude\skills\<skill>\      # SKILLs (or --skills-dir)
 ```
 
 ## CLI Commands
@@ -127,7 +127,7 @@ revit-harness dialog-pending [--all]      # open entries (id, title, automationI
 revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by "<agent or model name>" [--save-rule] [--timeout 10000]
 ```
 
-Check for pending dialogs whenever a command seems stuck or times out (a modal dialog blocks Revit), read `bodySummary` and the screenshot, then press one of the listed buttons. A nonexistent button is rejected. The watcher (`scripts/dialog-watcher.ps1 start`) must be running: it presses the button by UI Automation and completes the entry, which the CLI waits for (exit 0 resolved, 1 rejected/stale/failed, 2 watcher did not pick it up; the request is then withdrawn). `--by` is mandatory and lands in the log as `decidedBy="external"`, `deciderName=<by>`. A dialog that disappears before the decision is marked `stale` and cannot be decided.
+Check for pending dialogs whenever a command seems stuck or times out (a modal dialog blocks Revit), read `bodySummary` and the screenshot, then press one of the listed buttons. A nonexistent button is rejected. The watcher (`revit-harness dialog-watcher start`) must be running: it presses the button by UI Automation and completes the entry, which the CLI waits for (exit 0 resolved, 1 rejected/stale/failed, 2 watcher did not pick it up; the request is then withdrawn). `--by` is mandatory and lands in the log as `decidedBy="external"`, `deciderName=<by>`. A dialog that disappears before the decision is marked `stale` and cannot be decided.
 
 `--save-rule` also writes an allowlist rule, but only for buttons known to be reversible (OK, Cancel, Close); a destructive button is pressed once and never learned, write that rule by hand if you really want it. A dialog covered by a `noLearn` rule is never saved, and neither is anything on the unsigned add-in security dialog.
 
@@ -149,13 +149,17 @@ revit-harness help      # Show help
 `src/RevitHarness.DialogWatcher` is a resident exe (net8.0-windows, no Revit dependency) that watches Revit.exe top-level windows and Windows error reporting dialogs (WerFault) through UI Automation (WindowOpened event plus a 300 ms poll). Known dialogs are answered from the allowlist (`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`) by pressing the button with the UIA Invoke pattern (never the real mouse). Unknown dialogs get a UIA tree dump in `dialogs\dumps\`, a screenshot in `dialogs\screenshots\` and a JSONL log record plus a pending entry; nothing is pressed.
 
 ```bash
-dotnet build src/RevitHarness.DialogWatcher -c Debug -p:Platform=x64
-powershell.exe -File scripts/dialog-watcher.ps1 start        # also: stop | status | tail-log [-Follow]
+dotnet build src/RevitHarness.DialogWatcher -c Debug -p:Platform=x64   # only needed when building from source
+revit-harness dialog-watcher start     # idempotent: no second instance; prints pid and log location
+revit-harness dialog-watcher status    # exit 1 when not running
+revit-harness dialog-watcher stop
 RevitHarness.DialogWatcher.exe --once --dry-run              # one pass, log only
 RevitHarness.DialogWatcher.exe --selftest                    # fake WinForms dialog, needs an interactive desktop
 ```
 
-Options: `--once`, `--dry-run`, `--pid <revit pid>`. The allowlist, pending entries and logs always live under `%LOCALAPPDATA%\RevitHarness\dialogs`. Stop with Ctrl+C or by creating `dialogs\watcher.stop`. A session-local named mutex (`Local\`) prevents a second watcher per Windows session; the pending-store and log mutexes are session-local too, so run the watcher, add-in and CLI in the same session.
+`revit-harness install` copies the watcher to `%LOCALAPPDATA%\RevitHarness\watcher\`. It is never started automatically and never resident by itself: start it before launching Revit and stop it when done (the `revit-harness-dialogs` SKILL tells an AI agent to do exactly that). Install stops a running watcher before replacing it.
+
+Exe options: `--once`, `--dry-run`, `--pid <revit pid>`. The allowlist, pending entries and logs always live under `%LOCALAPPDATA%\RevitHarness\dialogs`. Stop with Ctrl+C or by creating `dialogs\watcher.stop`. A session-local named mutex (`Local\`) prevents a second watcher per Windows session; the pending-store and log mutexes are session-local too, so run the watcher, add-in and CLI in the same session.
 
 ## Exit Codes
 

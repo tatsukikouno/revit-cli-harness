@@ -12,7 +12,7 @@ A Revit 2024/2025/2026 harness add-in that enables external CLI/agent execution 
 - **Thread Safety**: All Revit API calls go through `ExternalEvent` → `HarnessEventHandler.Execute()` on Revit's main thread. A 100ms polling timer in `App.cs` raises the event when requests are pending.
 - **Shadow Copy + Byte Load**: DLLs are copied to `%LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\`, then loaded via `Assembly.Load(byte[])` to bypass the .NET assembly cache entirely. This enables true hot-reload of same-name/same-version assemblies. Old shadow dirs auto-clean (max 10 generations, >1 day old).
 - **Mixed Frameworks**: Addin multi-targets per Revit year via Configuration suffix (`R24`/`R25`/`R26`) — `net48` for Revit 2024, `net8.0-windows` for Revit 2025/2026. Contracts multi-targets `net48;net8.0-windows` directly (published NuGet package). Lookup stays `net48`-only (Revit 2024 only, see `lookupElement` note below). CLI targets `net8.0` (a `dotnet tool` cannot use a Windows-specific TFM).
-- **Embedded Resources**: CLI embeds the Addin build output as EmbeddedResources for self-contained `install` deployment
+- **Embedded Resources**: CLI embeds the Addin build output as EmbeddedResources for self-contained `install` deployment. The DialogWatcher build output and `skills/` ship as plain files next to the CLI dll in the nupkg (`tools/net8.0/any/watcher`, `/skills`), and `install` copies them to `%LOCALAPPDATA%\RevitHarness\watcher` and `%USERPROFILE%\.claude\skills` (or `--skills-dir`)
 
 ### NuGet Packages
 
@@ -45,7 +45,7 @@ dotnet pack src/RevitHarness.Contracts -c Release
 dotnet pack src/RevitHarness.Cli -c Release
 ```
 
-**Important**: Build the Addin project for all three configurations (`Debug R24`/`Debug R25`/`Debug R26`, or the `Release` equivalents) as **separate `dotnet build` invocations, before** building the CLI project or the solution. The CLI embeds each year's Addin build output as a version-prefixed resource (see `RevitHarness.Cli.csproj` `EmbeddedResource` items with `Condition="Exists(...)"`), and `RevitInstaller` selects the matching set at install time based on `--revit-version`. That `Exists(...)` condition is evaluated once, up front, and is *not* re-checked after a same-invocation dependency build finishes — so even a single `dotnet build revit-cli-harness.sln` run will silently embed nothing for whichever year's Addin output doesn't already exist on disk before that invocation starts (this is a pre-existing characteristic of the embedding mechanism, not specific to R25/R26). Always build R24/R25/R26 as their own prior commands first. `lookupElement` is only available in the R24 (Revit 2024, net48) build — R25/R26 builds return a `NOT_SUPPORTED` error for that operation because the `RevitHarness.Lookup` dependency (`lib/LookupEngine/*.dll`) is net48-only.
+**Important**: Build the Addin project for all three configurations (`Debug R24`/`Debug R25`/`Debug R26`, or the `Release` equivalents) as **separate `dotnet build` invocations, before** building the CLI project or the solution. The CLI embeds each year's Addin build output as a version-prefixed resource (see `RevitHarness.Cli.csproj` `EmbeddedResource` items with `Condition="Exists(...)"`), and `RevitInstaller` selects the matching set at install time based on `--revit-version`. That `Exists(...)` condition is evaluated once, up front, and is *not* re-checked after a same-invocation dependency build finishes — so even a single `dotnet build revit-cli-harness.sln` run will silently embed nothing for whichever year's Addin output doesn't already exist on disk before that invocation starts (this is a pre-existing characteristic of the embedding mechanism, not specific to R25/R26). Always build R24/R25/R26 as their own prior commands first. Build `src/RevitHarness.DialogWatcher` (same configuration, `-p:Platform=x64`) before the CLI too; `dotnet pack` fails when its output is missing, and pack the CLI with `--no-build` after `dotnet build src/RevitHarness.Cli -c Release`. `lookupElement` is only available in the R24 (Revit 2024, net48) build — R25/R26 builds return a `NOT_SUPPORTED` error for that operation because the `RevitHarness.Lookup` dependency (`lib/LookupEngine/*.dll`) is net48-only.
 
 ## Project Structure
 
@@ -110,8 +110,8 @@ Exit codes: 0=success, 1=failure (`ok=false` or `passed=false`), 2=connection/ti
 ## CLI Usage
 
 ```bash
-revit-harness install --revit-version 2024 [--force]
-revit-harness uninstall --revit-version 2024
+revit-harness install --revit-version 2024 [--skills-dir <path>]
+revit-harness uninstall --revit-version 2024 [--skills-dir <path>]
 revit-harness status [--revit-version 2024]
 revit-harness ping
 revit-harness run-tests --dll <path> --type <typename> [--filter <filter>] [--timeout <ms>]
@@ -120,6 +120,7 @@ revit-harness post-command --id <commandId>
 revit-harness lookup --id <elementId> [--depth <n>] [--max-members <n>] [--include-fields] [--include-private] [--include-static] [--filter <name>]
 revit-harness dialog-log [--count <n>]
 revit-harness reload-allowlist
+revit-harness dialog-watcher start|stop|status
 revit-harness dialog-pending [--all]
 revit-harness dialog-decide --id <pendingId> --button <name> --by <decider> [--button-id <automationId>] [--save-rule] [--timeout <ms>]
 revit-harness shutdown
@@ -149,7 +150,7 @@ revit-harness dialog-pending [--all]      # open entries (id, title, automationI
 revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by "<agent or model name>" [--save-rule] [--timeout 10000]
 ```
 
-Check for pending dialogs whenever a command seems stuck or times out (a modal dialog blocks Revit), read `bodySummary` and the screenshot, then press one of the listed buttons. A nonexistent button is rejected. The watcher (`scripts/dialog-watcher.ps1 start`) must be running: it presses the button by UI Automation and completes the entry, which the CLI waits for (exit 0 resolved, 1 rejected/stale/failed, 2 watcher did not pick it up; the request is then withdrawn). `--by` is mandatory and lands in the log as `decidedBy="external"`, `deciderName=<by>`. A dialog that disappears before the decision is marked `stale` and cannot be decided.
+Check for pending dialogs whenever a command seems stuck or times out (a modal dialog blocks Revit), read `bodySummary` and the screenshot, then press one of the listed buttons. A nonexistent button is rejected. The watcher (`revit-harness dialog-watcher start`) must be running: it presses the button by UI Automation and completes the entry, which the CLI waits for (exit 0 resolved, 1 rejected/stale/failed, 2 watcher did not pick it up; the request is then withdrawn). `--by` is mandatory and lands in the log as `decidedBy="external"`, `deciderName=<by>`. A dialog that disappears before the decision is marked `stale` and cannot be decided.
 
 `--save-rule` also writes an allowlist rule, but only for buttons known to be reversible (OK, Cancel, Close); a destructive button is pressed once and never learned, write that rule by hand if you really want it. A dialog covered by a `noLearn` rule is never saved, and neither is anything on the unsigned add-in security dialog.
 
@@ -164,13 +165,17 @@ Check for pending dialogs whenever a command seems stuck or times out (a modal d
 `src/RevitHarness.DialogWatcher` is a resident exe (net8.0-windows, no Revit dependency) that watches Revit.exe top-level windows and Windows error reporting dialogs (WerFault) through UI Automation (WindowOpened event plus a 300 ms poll). Known dialogs are answered from the allowlist (`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`) by pressing the button with the UIA Invoke pattern (never the real mouse). Unknown dialogs get a UIA tree dump in `dialogs\dumps\`, a screenshot in `dialogs\screenshots\` and a JSONL log record plus a pending entry; nothing is pressed.
 
 ```bash
-dotnet build src/RevitHarness.DialogWatcher -c Debug -p:Platform=x64
-powershell.exe -File scripts/dialog-watcher.ps1 start        # also: stop | status | tail-log [-Follow]
+dotnet build src/RevitHarness.DialogWatcher -c Debug -p:Platform=x64   # only needed when building from source
+revit-harness dialog-watcher start     # idempotent: no second instance; prints pid and log location
+revit-harness dialog-watcher status    # exit 1 when not running
+revit-harness dialog-watcher stop
 RevitHarness.DialogWatcher.exe --once --dry-run              # one pass, log only
 RevitHarness.DialogWatcher.exe --selftest                    # fake WinForms dialog, needs an interactive desktop
 ```
 
-Options: `--once`, `--dry-run`, `--pid <revit pid>`. The allowlist, pending entries and logs always live under `%LOCALAPPDATA%\RevitHarness\dialogs`. Stop with Ctrl+C or by creating `dialogs\watcher.stop`. A session-local named mutex (`Local\`) prevents a second watcher per Windows session; the pending-store and log mutexes are session-local too, so run the watcher, add-in and CLI in the same session.
+`revit-harness install` copies the watcher to `%LOCALAPPDATA%\RevitHarness\watcher\`. It is never started automatically and never resident by itself: start it before launching Revit and stop it when done (the `revit-harness-dialogs` SKILL tells an AI agent to do exactly that). Install stops a running watcher before replacing it.
+
+Exe options: `--once`, `--dry-run`, `--pid <revit pid>`. The allowlist, pending entries and logs always live under `%LOCALAPPDATA%\RevitHarness\dialogs`. Stop with Ctrl+C or by creating `dialogs\watcher.stop`. A session-local named mutex (`Local\`) prevents a second watcher per Windows session; the pending-store and log mutexes are session-local too, so run the watcher, add-in and CLI in the same session.
 
 ## Logs
 

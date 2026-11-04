@@ -26,20 +26,18 @@ dotnet tool install -g RevitHarness.Cli
 ### アドインの展開
 
 ```bash
-# インストール
+# インストール: アドイン、ダイアログウォッチャー、SKILL を展開（再実行で上書き）
 revit-harness install --revit-version 2024
-
-# 再インストール（--force で上書き）
-revit-harness install --revit-version 2024 --force
+revit-harness install --revit-version 2024 --skills-dir D:\my-skills   # SKILL の展開先を変更
 
 # 状態確認
 revit-harness status
 
-# アンインストール
+# アンインストール: アドインを削除。最後のバージョンを消すとウォッチャーと SKILL も削除
 revit-harness uninstall --revit-version 2024
 ```
 
-> Revit を閉じた状態でインストール/アンインストールしてください。インストール後は Revit を再起動すると自動的にアドインがロードされます。
+> Revit を閉じた状態でインストール/アンインストールしてください。インストール後は Revit を再起動すると自動的にアドインがロードされます。アンインストールしても `%LOCALAPPDATA%\RevitHarness\dialogs`（allowlist・ログ・pending）は残ります。ウォッチャーは自動起動しません。Revit を起動する前に `revit-harness dialog-watcher start` で起動し、終わったら `stop` してください。
 
 ### インストール先
 
@@ -53,6 +51,8 @@ revit-harness uninstall --revit-version 2024
     ├── LookupEngine.dll
     ├── Newtonsoft.Json.dll
     └── ...
+%LOCALAPPDATA%\RevitHarness\watcher\       # ダイアログウォッチャー
+%USERPROFILE%\.claude\skills\<skill>\      # SKILL（--skills-dir で変更可）
 ```
 
 ## CLI コマンド

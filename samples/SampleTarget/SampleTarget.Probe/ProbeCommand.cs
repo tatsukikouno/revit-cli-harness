@@ -62,8 +62,8 @@ namespace SampleTarget.Probe
                     return JsonConvert.SerializeObject(new { title = uiapp.OpenAndActivateDocument(temp).Document.Title });
                 case "asm":
                     return JsonConvert.SerializeObject(AppDomain.CurrentDomain.GetAssemblies()
-                        .Where(a => a.GetName().Name.StartsWith("SampleTarget"))
-                        .Select(a => new { name = a.GetName().Name, version = a.GetName().Version.ToString(), location = a.IsDynamic ? "" : a.Location }));
+                        .Where(a => a.GetName().Name!.StartsWith("SampleTarget"))
+                        .Select(a => new { name = a.GetName().Name, version = a.GetName().Version!.ToString(), location = a.IsDynamic ? "" : a.Location }));
                 case "alc":
                     return JsonConvert.SerializeObject(new
                     {

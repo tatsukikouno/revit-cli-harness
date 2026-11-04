@@ -157,6 +157,8 @@ Revit はリボン項目を削除できないため、ボタンは `RevitHarness
 リボンが起動時に作られる。復元失敗は Revit 起動を妨げない。`unload` は対象を停止して
 このファイルを削除する。
 
+IUpdater は `application.ActiveAddInId`（ハーネスが対象を動かしている間はハーネスのID）で登録してください。他のIDだとRevitが拒否します。net48 では .NET Framework のバインダが同じ単純名の読み込み済みアセンブリを再利用するため、ハーネスは対象の自前DLLを世代ごとに名前だけ変えて（Mono.Cecil）読み込み、再ビルドした補助DLLが使われるようにしています。コマンドがホストの Newtonsoft.Json に自分の型（匿名オブジェクトなど）を渡してシリアライズすると、その型がライブラリのキャッシュに残り、net8以降の世代が解放されなくなります。
+
 対象の `OnShutdown` は updater 登録解除、イベント購読解除、`ExternalEvent` とタイマーの
 Dispose、バックグラウンド処理の停止を行う必要がある。net8/net10 は世代ごとに新しい
 収集可能 AssemblyLoadContext を使うが、参照が残ると解放できない（`previousReleased`、

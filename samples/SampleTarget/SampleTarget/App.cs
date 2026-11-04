@@ -14,6 +14,8 @@ namespace SampleTarget
     {
         internal static readonly string Tag = typeof(App).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
             .Single(a => a.Key == "BuildTag").Value ?? "";
+        internal static readonly string Features = typeof(App).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .Single(a => a.Key == "Features").Value ?? "";
         internal static void Write(string kind) => SampleLog.Write(kind, Tag, BuildInfo.Tag);
     }
 
@@ -28,19 +30,25 @@ namespace SampleTarget
             var panel = application.GetRibbonPanels("SampleTarget").FirstOrDefault(p => p.Name == "Sample")
                 ?? application.CreateRibbonPanel("SampleTarget", "Sample");
             TargetRibbon.AddPushButton(panel, "Hello", $"Hello {TargetLog.Tag}", typeof(HelloCommand).FullName!);
-            var updater = new SampleUpdater(application.ActiveAddInId);
-            UpdaterRegistry.RegisterUpdater(updater, true);
-            UpdaterRegistry.AddTrigger(updater.GetUpdaterId(), new ElementClassFilter(typeof(Level)),
-                Element.GetChangeTypeElementAddition());
-            _documentChanged = (sender, args) => TargetLog.Write("event");
-            application.ControlledApplication.DocumentChanged += _documentChanged;
+            if (TargetLog.Features.Contains("updater"))
+            {
+                var updater = new SampleUpdater(application.ActiveAddInId);
+                UpdaterRegistry.RegisterUpdater(updater, true);
+                UpdaterRegistry.AddTrigger(updater.GetUpdaterId(), new ElementClassFilter(typeof(Level)),
+                    Element.GetChangeTypeElementAddition());
+            }
+            if (TargetLog.Features.Contains("event"))
+            {
+                _documentChanged = (sender, args) => TargetLog.Write("event");
+                application.ControlledApplication.DocumentChanged += _documentChanged;
+            }
             TargetLog.Write("startup");
             return Result.Succeeded;
         }
 
         public Result OnShutdown(UIControlledApplication application)
         {
-            try { UpdaterRegistry.UnregisterUpdater(SampleUpdater.IdFor(application.ActiveAddInId)); }
+            try { if (TargetLog.Features.Contains("updater")) UpdaterRegistry.UnregisterUpdater(SampleUpdater.IdFor(application.ActiveAddInId)); }
             finally
             {
                 if (_documentChanged != null)

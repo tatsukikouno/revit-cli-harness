@@ -191,14 +191,15 @@ namespace RevitHarness.Addin.Ipc
         private sealed class GenerationContext : AssemblyLoadContext
         {
             private readonly Dictionary<string, string> _owned;
-            private readonly Dictionary<string, Assembly> _hosts;
+            // Weak: a resident target's assemblies handed to a throwaway generation must not pin the target's context once it is replaced.
+            private readonly Dictionary<string, WeakReference<Assembly>> _hosts;
             private readonly AssemblyLoadContext _hostContext = GetLoadContext(typeof(Generation).Assembly)!;
 
             public GenerationContext(Dictionary<string, string> owned, Dictionary<string, Assembly> hosts)
                 : base("RevitHarness-" + Guid.NewGuid().ToString("N"), isCollectible: true)
             {
                 _owned = owned;
-                _hosts = hosts;
+                _hosts = hosts.ToDictionary(h => h.Key, h => new WeakReference<Assembly>(h.Value), StringComparer.OrdinalIgnoreCase);
             }
 
             protected override Assembly? Load(AssemblyName name)
@@ -210,7 +211,7 @@ namespace RevitHarness.Addin.Ipc
                     using var pdb = File.Exists(pdbPath) ? new MemoryStream(File.ReadAllBytes(pdbPath)) : null;
                     return LoadFromStream(dll, pdb);
                 }
-                if (_hosts.TryGetValue(name.Name!, out var host)) return host;
+                if (_hosts.TryGetValue(name.Name!, out var host) && host.TryGetTarget(out var hostAssembly)) return hostAssembly;
                 try { return _hostContext.LoadFromAssemblyName(name); }
                 catch (FileNotFoundException) { return null; }
                 catch (FileLoadException) { return null; }

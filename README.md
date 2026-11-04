@@ -212,6 +212,12 @@ uses a new collectible AssemblyLoadContext; references left behind can prevent r
 (check `previousReleased`, `released`, and warnings). On net48 each reload byte-loads a new
 generation; old generations stay in memory until Revit exits. Native DLLs are unsupported.
 Byte-loaded assemblies have an empty `Assembly.Location`; avoid using it to locate assets.
+Register `IUpdater`s with `application.ActiveAddInId` (the harness's id while it hosts the
+target); Revit rejects any other owner. On net48 the .NET Framework binder reuses any loaded
+assembly with the same simple name, so the harness renames the target's own helper DLLs per
+generation (Mono.Cecil, names only) so a rebuilt helper is really used. Values a command
+serializes through the host's Newtonsoft.Json with its own types (for example anonymous
+objects) stay in that library's caches and keep a net8+ generation from being released.
 See [SampleTarget](samples/SampleTarget/README.md) for build commands and a probe of
 startup/shutdown, helper DLL updates, events, updaters, and ribbon rebinding.
 

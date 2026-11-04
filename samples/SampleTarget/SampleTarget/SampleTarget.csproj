@@ -4,6 +4,7 @@
     <AssemblyName>SampleTarget</AssemblyName>
     <RootNamespace>SampleTarget</RootNamespace>
     <BuildTag Condition="'$(BuildTag)' == ''">dev</BuildTag>
+    <Features Condition="'$(Features)' == ''">updater,event</Features>
     <Platforms>x64</Platforms>
     <Platform>x64</Platform>
   </PropertyGroup>
@@ -24,5 +25,6 @@
     <ProjectReference Include="../../../src/RevitHarness.Contracts/RevitHarness.Contracts.csproj" />
     <ProjectReference Include="../SampleTarget.Core/SampleTarget.Core.csproj" />
     <AssemblyMetadata Include="BuildTag" Value="$(BuildTag)" />
+    <AssemblyMetadata Include="Features" Value="$(Features)" />
   </ItemGroup>
 </Project>

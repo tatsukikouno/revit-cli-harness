@@ -27,6 +27,12 @@ namespace RevitHarness.Addin.Ipc
 
         public event EventHandler<IpcRequest>? RequestReceived;
 
+        /// <summary>
+        /// Answers requests on the pipe thread without the Revit main thread (a modal dialog blocks that thread).
+        /// Returns null to fall through to the normal queue.
+        /// </summary>
+        public Func<IpcRequest, IpcResponse?>? DirectHandler { get; set; }
+
         public IpcServer(Action<string> log)
         {
             _log = log;
@@ -122,6 +128,13 @@ namespace RevitHarness.Addin.Ipc
 
                     _log($"Received request: op={request.Op}, id={request.Id}");
                     RequestReceived?.Invoke(this, request);
+
+                    var direct = DirectHandler?.Invoke(request);
+                    if (direct != null)
+                    {
+                        await WriteMessageAsync(pipe, direct, ct);
+                        continue;
+                    }
 
                     // Create a completion source for the response
                     var tcs = new TaskCompletionSource<IpcResponse>();

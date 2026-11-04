@@ -28,6 +28,14 @@
     <DefineConstants>$(DefineConstants);LOOKUP_SUPPORTED</DefineConstants>
   </PropertyGroup>
 
+  <!-- RevitWindowCapture needs System.Drawing; on net8.0-windows it ships with the Windows Forms reference assemblies -->
+  <PropertyGroup Condition="'$(RevitYearSuffix)'!='R24'">
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(RevitYearSuffix)'=='R24'">
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
   <!-- net8.0-windows resolves WPF assemblies automatically via UseWPF; net48 needs them listed explicitly -->
   <ItemGroup Condition="'$(RevitYearSuffix)'=='R24'">
     <Reference Include="PresentationFramework" />
@@ -37,6 +45,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\RevitHarness.Dialogs.Shared\RevitHarness.Dialogs.Shared.csproj" />
     <ProjectReference Include="..\RevitHarness.Contracts\RevitHarness.Contracts.csproj" />
     <ProjectReference Include="..\RevitHarness.Lookup\RevitHarness.Lookup.csproj" Condition="'$(RevitYearSuffix)'=='R24'" />
   </ItemGroup>

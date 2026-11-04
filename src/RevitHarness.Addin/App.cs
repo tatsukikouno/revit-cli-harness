@@ -2,6 +2,7 @@
 
 using Autodesk.Revit.UI;
 using RevitHarness.Addin.Commands;
+using RevitHarness.Addin.DialogHandling;
 using RevitHarness.Addin.Ipc;
 using System;
 using System.IO;
@@ -17,6 +18,7 @@ namespace RevitHarness.Addin
         private ExternalEvent? _externalEvent;
         private HarnessEventHandler? _eventHandler;
         private Timer? _processingTimer;
+        private DialogHooks? _dialogHooks;
         private static readonly object _logLock = new object();
         private static StreamWriter? _logWriter;
 
@@ -27,17 +29,30 @@ namespace RevitHarness.Addin
         {
             try
             {
+                BundledDependencyResolver.Install();
                 InitializeLogging();
                 Log("RevitHarness add-in starting...");
 
                 // Create IPC server
                 _server = new IpcServer(Log);
+                _server.DirectHandler = DialogIpcHandler.TryHandle;
 
                 // Create event handler
                 _eventHandler = new HarnessEventHandler(_server, Log);
 
                 // Create external event
                 _externalEvent = ExternalEvent.Create(_eventHandler);
+
+                // Dialog auto-handling (fixed in this add-in, never in hot-loaded user DLLs)
+                try
+                {
+                    _dialogHooks = new DialogHooks(Log);
+                    _dialogHooks.Subscribe(application);
+                }
+                catch (Exception dialogEx)
+                {
+                    Log($"Dialog hooks failed (non-fatal): {dialogEx.Message}");
+                }
 
                 // Start IPC server
                 _server.Start();
@@ -78,6 +93,10 @@ namespace RevitHarness.Addin
             try
             {
                 Log("RevitHarness add-in shutting down...");
+
+                _dialogHooks?.Unsubscribe();
+                _dialogHooks = null;
+                BundledDependencyResolver.Uninstall();
 
                 // Stop processing timer
                 _processingTimer?.Dispose();

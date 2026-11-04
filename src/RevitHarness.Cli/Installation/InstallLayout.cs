@@ -1,7 +1,6 @@
 #nullable enable
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using RevitHarness.Dialogs;
@@ -39,20 +38,22 @@ namespace RevitHarness.Cli.Installation
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 skillsDir ?? Path.Combine(profile, ".claude", "skills"),
                 AppContext.BaseDirectory,
-                DotnetRootCandidates(Environment.GetEnvironmentVariable("DOTNET_ROOT"), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
+                DotnetRootCandidates(Environment.GetEnvironmentVariable("DOTNET_ROOT_X64"), Environment.GetEnvironmentVariable("DOTNET_ROOT"), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
         }
 
         /// <summary>
-        /// Where the .NET host looks for shared runtimes: DOTNET_ROOT first, then the default
-        /// Program Files install. The watcher pre-start check searches the same places the apphost does.
+        /// The one .NET root the apphost loads the runtime from: DOTNET_ROOT_X64, else DOTNET_ROOT,
+        /// else the default Program Files install. When an environment variable names a root the host
+        /// uses only that root, so the watcher pre-start check looks only there too.
         /// </summary>
-        public static string[] DotnetRootCandidates(string? dotnetRootEnv, string programFiles)
+        public static string[] DotnetRootCandidates(string? dotnetRootX64, string? dotnetRoot, string programFiles)
         {
-            var roots = new List<string>();
-            if (!string.IsNullOrWhiteSpace(dotnetRootEnv))
-                roots.Add(dotnetRootEnv!.Trim());
-            roots.Add(Path.Combine(programFiles, "dotnet"));
-            return roots.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            foreach (var fromEnvironment in new[] { dotnetRootX64, dotnetRoot })
+            {
+                if (!string.IsNullOrWhiteSpace(fromEnvironment))
+                    return new[] { fromEnvironment!.Trim() };
+            }
+            return new[] { Path.Combine(programFiles, "dotnet") };
         }
 
         public string AddinsRoot => Path.Combine(AppData, "Autodesk", "Revit", "Addins");

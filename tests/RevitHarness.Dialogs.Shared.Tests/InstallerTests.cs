@@ -313,41 +313,58 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.Contains("https://dotnet.microsoft.com/download/dotnet/10.0", result.Message);
         }
 
+        private InstallLayout LayoutWithRoots(string? dotnetRootX64, string? dotnetRoot, string programFiles) =>
+            new InstallLayout(_layout.AppData, _layout.LocalAppData, _layout.SkillsDir, _layout.BundleRoot,
+                InstallLayout.DotnetRootCandidates(dotnetRootX64, dotnetRoot, programFiles));
+
         [Fact]
         public void Start_finds_the_desktop_runtime_under_DOTNET_ROOT_when_Program_Files_has_none()
         {
             var customRoot = Path.Combine(_root, "custom-dotnet");
             Directory.CreateDirectory(Path.Combine(customRoot, "shared", "Microsoft.WindowsDesktop.App", "10.0.1"));
-            var emptyProgramFiles = Path.Combine(_root, "program-files");
-            var layout = new InstallLayout(_layout.AppData, _layout.LocalAppData, _layout.SkillsDir, _layout.BundleRoot,
-                InstallLayout.DotnetRootCandidates(customRoot, emptyProgramFiles));
+            var layout = LayoutWithRoots(null, customRoot, Path.Combine(_root, "empty-program-files"));
             var control = new WatcherControl(layout, pid => pid == 9 ? WatcherName : null, _ => { WritePid(9); return 9; });
 
             Assert.True(control.Start().Ok);
         }
 
         [Fact]
-        public void Start_reports_the_missing_runtime_naming_DOTNET_ROOT_when_neither_location_has_it()
+        public void Start_fails_when_DOTNET_ROOT_lacks_the_runtime_even_though_Program_Files_has_it()
         {
             var customRoot = Path.Combine(_root, "custom-dotnet");
             Directory.CreateDirectory(customRoot);
-            var layout = new InstallLayout(_layout.AppData, _layout.LocalAppData, _layout.SkillsDir, _layout.BundleRoot,
-                InstallLayout.DotnetRootCandidates(customRoot, Path.Combine(_root, "program-files")));
+            var layout = LayoutWithRoots(null, customRoot, _root);
             var control = new WatcherControl(layout, _ => null, _ => throw new InvalidOperationException("must not spawn"));
 
             var result = control.Start();
 
             Assert.False(result.Ok);
             Assert.Contains(customRoot, result.Message);
+            Assert.DoesNotContain(Path.Combine(_root, "dotnet"), result.Message);
         }
 
         [Fact]
-        public void DotnetRootCandidates_lists_DOTNET_ROOT_before_Program_Files_and_skips_an_unset_value()
+        public void Start_prefers_DOTNET_ROOT_X64_over_DOTNET_ROOT()
         {
-            Assert.Equal(new[] { @"D:\sdk", Path.Combine(@"C:\pf", "dotnet") }, InstallLayout.DotnetRootCandidates(@"D:\sdk", @"C:\pf"));
-            Assert.Equal(new[] { Path.Combine(@"C:\pf", "dotnet") }, InstallLayout.DotnetRootCandidates(null, @"C:\pf"));
-            Assert.Equal(new[] { Path.Combine(@"C:\pf", "dotnet") }, InstallLayout.DotnetRootCandidates("  ", @"C:\pf"));
-            Assert.Single(InstallLayout.DotnetRootCandidates(Path.Combine(@"C:\pf", "DOTNET"), @"C:\pf"));
+            var x64Root = Path.Combine(_root, "x64-dotnet");
+            Directory.CreateDirectory(Path.Combine(x64Root, "shared", "Microsoft.WindowsDesktop.App", "10.0.1"));
+            var emptyRoot = Path.Combine(_root, "empty-dotnet");
+            Directory.CreateDirectory(emptyRoot);
+            var layout = LayoutWithRoots(x64Root, emptyRoot, _root);
+            var control = new WatcherControl(layout, pid => pid == 9 ? WatcherName : null, _ => { WritePid(9); return 9; });
+
+            Assert.True(control.Start().Ok);
+        }
+
+        [Fact]
+        public void DotnetRootCandidates_uses_the_first_environment_root_that_is_set_and_otherwise_Program_Files()
+        {
+            var programFilesDotnet = Path.Combine("pf", "dotnet");
+            Assert.Equal(new[] { "x64" }, InstallLayout.DotnetRootCandidates("x64", "any", "pf"));
+            Assert.Equal(new[] { "any" }, InstallLayout.DotnetRootCandidates(null, " any ", "pf"));
+            Assert.Equal(new[] { "any" }, InstallLayout.DotnetRootCandidates("", "any", "pf"));
+            Assert.Equal(new[] { programFilesDotnet }, InstallLayout.DotnetRootCandidates(null, null, "pf"));
+            Assert.Equal(new[] { programFilesDotnet }, InstallLayout.DotnetRootCandidates("  ", "", "pf"));
         }
 
         [Fact]

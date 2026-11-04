@@ -270,7 +270,8 @@ namespace RevitHarness.DialogWatcher
         private void Skipped(DialogDecision decision, DialogInfo info, string why, string? shot, string? dump, long hwnd, int pid)
         {
             Note(decision, "skipped", why);
-            RegisterPending(info, "rule " + decision.Record.MatchedRuleId + " matched but could not be applied: " + why, shot, dump, hwnd, pid);
+            try { RegisterPending(info, "rule " + decision.Record.MatchedRuleId + " matched but could not be applied: " + why, shot, dump, hwnd, pid); }
+            catch (TimeoutException) { handled.Remove(hwnd); throw; }
         }
 
         private static string RuntimeIdOf(AutomationElement window)

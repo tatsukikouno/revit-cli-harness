@@ -17,6 +17,8 @@ namespace RevitHarness.Cli.Installation
 
         private const string AddinManifestResourceName = "RevitHarness.addin";
 
+        private static readonly string[] LicenseResourceNames = { "LICENSE", "THIRD-PARTY-NOTICES.md" };
+
         /// <summary>
         /// Gets the Revit addins folder path for a specific version.
         /// </summary>
@@ -170,6 +172,18 @@ namespace RevitHarness.Cli.Installation
                     using var fileStream = File.Create(destPath);
                     stream.CopyTo(fileStream);
                     extractedFiles.Add(destPath);
+                }
+
+                foreach (var licenseName in LicenseResourceNames)
+                {
+                    using var licenseStream = assembly.GetManifestResourceStream(licenseName);
+                    if (licenseStream == null)
+                        continue;
+
+                    var licensePath = Path.Combine(installFolder, licenseName);
+                    using var licenseFileStream = File.Create(licensePath);
+                    licenseStream.CopyTo(licenseFileStream);
+                    extractedFiles.Add(licensePath);
                 }
 
                 using (var manifestStream = assembly.GetManifestResourceStream(AddinManifestResourceName))

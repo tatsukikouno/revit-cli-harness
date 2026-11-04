@@ -23,11 +23,6 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
-  <!-- lookupElement is only available on the net48 (Revit 2024) build; see HarnessEventHandler.cs -->
-  <PropertyGroup Condition="'$(RevitYearSuffix)'=='R24'">
-    <DefineConstants>$(DefineConstants);LOOKUP_SUPPORTED</DefineConstants>
-  </PropertyGroup>
-
   <!-- net8.0-windows resolves WPF assemblies automatically via UseWPF; net48 needs them listed explicitly -->
   <ItemGroup Condition="'$(RevitYearSuffix)'=='R24'">
     <Reference Include="PresentationFramework" />
@@ -38,7 +33,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RevitHarness.Contracts\RevitHarness.Contracts.csproj" />
-    <ProjectReference Include="..\RevitHarness.Lookup\RevitHarness.Lookup.csproj" Condition="'$(RevitYearSuffix)'=='R24'" />
+    <ProjectReference Include="..\RevitHarness.Lookup\RevitHarness.Lookup.csproj" />
   </ItemGroup>
 
   <ItemGroup>

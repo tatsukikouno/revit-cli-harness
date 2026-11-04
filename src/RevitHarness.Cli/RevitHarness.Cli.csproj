@@ -14,6 +14,8 @@
     <Description>CLI tool for RevitHarness - installs and manages the RevitHarness add-in for Revit</Description>
     <PackageTags>revit;testing;harness;cli</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- License stays an SPDX expression (MIT, from Directory.Build.props); NuGet rejects setting both
+         PackageLicenseExpression and PackageLicenseFile. LICENSE and THIRD-PARTY-NOTICES.md are packed as plain files. -->
 
     <!-- .NET 8 settings -->
     <ImplicitUsings>disable</ImplicitUsings>
@@ -38,6 +40,8 @@
                       Exclude="..\RevitHarness.Addin\bin\x64\$(Configuration) R26\RevitAPI.dll;..\RevitHarness.Addin\bin\x64\$(Configuration) R26\RevitAPIUI.dll"
                       LogicalName="2026/%(Filename)%(Extension)"
                       Condition="Exists('..\RevitHarness.Addin\bin\x64\$(Configuration) R26')" />
+    <EmbeddedResource Include="..\..\THIRD-PARTY-NOTICES.md" LogicalName="THIRD-PARTY-NOTICES.md" />
+    <EmbeddedResource Include="..\..\LICENSE" LogicalName="LICENSE" />
     <EmbeddedResource Include="..\RevitHarness.Addin\RevitHarness.addin" Link="Resources\RevitHarness.addin" LogicalName="RevitHarness.addin" />
   </ItemGroup>
 
@@ -52,5 +56,7 @@
 
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 </Project>

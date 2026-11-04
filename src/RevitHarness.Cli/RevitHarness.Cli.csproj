@@ -2,8 +2,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <!-- Must stay a plain (non-Windows-suffixed) TFM: PackAsTool rejects TargetPlatformIdentifier-
-         bearing TargetFrameworks like net8.0-windows (NETSDK1146). -->
-    <TargetFramework>net8.0</TargetFramework>
+         bearing TargetFrameworks like net10.0-windows (NETSDK1146). -->
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>RevitHarness.Cli</RootNamespace>
     <AssemblyName>revit-harness</AssemblyName>
 
@@ -15,7 +15,7 @@
     <PackageTags>revit;testing;harness;cli</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
 
-    <!-- .NET 8 settings -->
+    <!-- .NET 10 settings -->
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -27,8 +27,8 @@
   <!-- The Addin (one build per supported Revit year) and the dialog watcher are built from here,
        then their outputs are added as items inside the target so the globs see the fresh output.
        TargetFramework is removed from the inherited global properties: `dotnet pack` re-enters this
-       project with TargetFramework=net8.0 as a global property, which would otherwise override the
-       Addin's per-year TFM (net48 / net8.0-windows) and fail with NETSDK1136. Each year restores
+       project with TargetFramework=net10.0 as a global property, which would otherwise override the
+       Addin's per-year TFM (net48 / net8.0-windows / net10.0-windows) and fail with NETSDK1136. Each year restores
        right before its build because all years share one obj\project.assets.json. -->
   <Target Name="BundleAddinAndWatcher" BeforeTargets="AssignTargetPaths">
     <MSBuild Projects="..\RevitHarness.Addin\RevitHarness.Addin.csproj" Targets="Restore"
@@ -49,6 +49,12 @@
     <MSBuild Projects="..\RevitHarness.Addin\RevitHarness.Addin.csproj"
              Properties="Configuration=$(Configuration) R26;Platform=x64"
              RemoveProperties="TargetFramework" />
+    <MSBuild Projects="..\RevitHarness.Addin\RevitHarness.Addin.csproj" Targets="Restore"
+             Properties="Configuration=$(Configuration) R27;Platform=x64;BundleRestore=true"
+             RemoveProperties="TargetFramework" />
+    <MSBuild Projects="..\RevitHarness.Addin\RevitHarness.Addin.csproj"
+             Properties="Configuration=$(Configuration) R27;Platform=x64"
+             RemoveProperties="TargetFramework" />
     <MSBuild Projects="..\RevitHarness.DialogWatcher\RevitHarness.DialogWatcher.csproj" Targets="Restore"
              Properties="Configuration=$(Configuration);Platform=x64;BundleRestore=true"
              RemoveProperties="TargetFramework" />
@@ -62,6 +68,8 @@
       <EmbeddedResource Include="@(AddinFile25)" LogicalName="2025/%(Filename)%(Extension)" />
       <AddinFile26 Include="..\RevitHarness.Addin\bin\x64\$(Configuration) R26\*.dll" Exclude="..\RevitHarness.Addin\bin\x64\$(Configuration) R26\RevitAPI.dll;..\RevitHarness.Addin\bin\x64\$(Configuration) R26\RevitAPIUI.dll" />
       <EmbeddedResource Include="@(AddinFile26)" LogicalName="2026/%(Filename)%(Extension)" />
+      <AddinFile27 Include="..\RevitHarness.Addin\bin\x64\$(Configuration) R27\*.dll" Exclude="..\RevitHarness.Addin\bin\x64\$(Configuration) R27\RevitAPI.dll;..\RevitHarness.Addin\bin\x64\$(Configuration) R27\RevitAPIUI.dll" />
+      <EmbeddedResource Include="@(AddinFile27)" LogicalName="2027/%(Filename)%(Extension)" />
       <WatcherFile Include="$(WatcherOutput)**\*" Exclude="$(WatcherOutput)**\*.pdb" />
       <Content Include="@(WatcherFile)" Link="watcher\%(RecursiveDir)%(Filename)%(Extension)"
                Pack="false" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
@@ -79,10 +87,10 @@
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
-  <!-- The dialog watcher and the SKILLs ship as plain files next to the CLI (tools/net8.0/any/watcher
+  <!-- The dialog watcher and the SKILLs ship as plain files next to the CLI (tools/net10.0/any/watcher
        and /skills in the nupkg); `revit-harness install` copies them out. -->
   <PropertyGroup>
-    <WatcherOutput>..\RevitHarness.DialogWatcher\bin\x64\$(Configuration)\net8.0-windows\</WatcherOutput>
+    <WatcherOutput>..\RevitHarness.DialogWatcher\bin\x64\$(Configuration)\net10.0-windows\</WatcherOutput>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="skills\**\*" Link="skills\%(RecursiveDir)%(Filename)%(Extension)"

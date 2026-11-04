@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
@@ -17,6 +17,7 @@
     <EmbeddedResource Include="TestData\RevitHarness.Addin.dll" LogicalName="2024/RevitHarness.Addin.dll" />
     <EmbeddedResource Include="TestData\RevitHarness.Contracts.dll" LogicalName="2024/RevitHarness.Contracts.dll" />
     <EmbeddedResource Include="TestData\RevitHarness.Addin.2025.dll" LogicalName="2025/RevitHarness.Addin.dll" />
+    <EmbeddedResource Include="TestData\RevitHarness.Addin.2027.dll" LogicalName="2027/RevitHarness.Addin.dll" />
     <EmbeddedResource Include="TestData\RevitHarness.addin" LogicalName="RevitHarness.addin" />
   </ItemGroup>
   <ItemGroup>

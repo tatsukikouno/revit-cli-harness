@@ -26,6 +26,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
                 Path.Combine(_root, "appdata"), Path.Combine(_root, "local"), Path.Combine(_root, "skills"), bundle, new[] { Path.Combine(_root, "dotnet") });
             Directory.CreateDirectory(_layout.AddinsFolder(2024));
             Directory.CreateDirectory(_layout.AddinsFolder(2025));
+            Directory.CreateDirectory(_layout.AddinsFolder(2027));
         }
 
         public void Dispose() => Directory.Delete(_root, recursive: true);
@@ -191,6 +192,25 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
+        public void Install_2027_deploys_the_2027_addin_set()
+        {
+            var result = NewInstaller().Install(2027);
+
+            Assert.True(result.Success, result.Message);
+            Assert.True(File.Exists(_layout.ManifestPath(2027)));
+            Assert.True(File.Exists(Path.Combine(_layout.InstallationFolder(2027), "RevitHarness.Addin.dll")));
+        }
+
+        [Fact]
+        public void Install_rejects_a_year_the_cli_does_not_support()
+        {
+            var result = NewInstaller().Install(2028);
+
+            Assert.False(result.Success);
+            Assert.Contains("2028", result.Message);
+        }
+
+        [Fact]
         public void Uninstall_when_nothing_installed_succeeds()
         {
             var result = NewInstaller().Uninstall(2024);
@@ -212,8 +232,8 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Directory.CreateDirectory(_layout.WatcherDir);
             File.WriteAllText(_layout.WatcherExe, "exe");
             File.WriteAllText(Path.Combine(_layout.WatcherDir, "RevitHarness.DialogWatcher.runtimeconfig.json"),
-                "{\"runtimeOptions\":{\"frameworks\":[{\"name\":\"Microsoft.NETCore.App\",\"version\":\"8.0.0\"},{\"name\":\"Microsoft.WindowsDesktop.App\",\"version\":\"8.0.0\"}]}}");
-            InstallDesktopRuntime("8.0.11");
+                "{\"runtimeOptions\":{\"frameworks\":[{\"name\":\"Microsoft.NETCore.App\",\"version\":\"10.0.0\"},{\"name\":\"Microsoft.WindowsDesktop.App\",\"version\":\"10.0.0\"}]}}");
+            InstallDesktopRuntime("10.0.9");
         }
 
         private void InstallDesktopRuntime(string version) =>
@@ -282,15 +302,15 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public void Start_names_the_missing_desktop_runtime_and_does_not_spawn()
         {
             Directory.Delete(Path.Combine(_root, "dotnet"), recursive: true);
-            InstallDesktopRuntime("6.0.36");
+            InstallDesktopRuntime("8.0.26");
             var control = new WatcherControl(_layout, _ => null, _ => throw new InvalidOperationException("must not spawn"));
 
             var result = control.Start();
 
             Assert.False(result.Ok);
-            Assert.Contains(".NET 8 Desktop Runtime", result.Message);
-            Assert.Contains("Microsoft.WindowsDesktop.App 8.0.0", result.Message);
-            Assert.Contains("https://dotnet.microsoft.com/download/dotnet/8.0", result.Message);
+            Assert.Contains(".NET 10 Desktop Runtime", result.Message);
+            Assert.Contains("Microsoft.WindowsDesktop.App 10.0.0", result.Message);
+            Assert.Contains("https://dotnet.microsoft.com/download/dotnet/10.0", result.Message);
         }
 
         [Fact]

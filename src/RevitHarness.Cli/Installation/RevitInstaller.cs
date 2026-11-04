@@ -13,7 +13,7 @@ namespace RevitHarness.Cli.Installation
     /// </summary>
     public sealed class RevitInstaller
     {
-        private static readonly int[] SupportedRevitVersions = { 2024, 2025, 2026 };
+        private static readonly int[] SupportedRevitVersions = { 2024, 2025, 2026, 2027 };
 
         private const string AddinManifestResourceName = "RevitHarness.addin";
         private const string SkillMarkerFile = ".revit-harness";

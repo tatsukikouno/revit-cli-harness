@@ -133,7 +133,7 @@ namespace RevitHarness.Addin.Commands
                     var message = string.Empty;
                     var elements = new ElementSet();
 
-                    var result = command.Execute(ExternalCommandDataFactory.Create(uiapp), ref message, elements);
+                    var result = command.Execute(ExternalCommandDataFactory.Create(uiapp, args), ref message, elements);
                     _log($"Command completed with result: {result}");
 
                     _shadowCopier.Cleanup();

@@ -1,27 +1,44 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net48</TargetFramework>
+    <Configurations>Debug R24;Release R24;Debug R25;Release R25;Debug R26;Release R26</Configurations>
+
+    <!-- Mirrors RevitHarness.Addin.csproj's RevitYearSuffix pattern -->
+    <RevitYearSuffix Condition="$(Configuration.EndsWith('R24'))">R24</RevitYearSuffix>
+    <RevitYearSuffix Condition="$(Configuration.EndsWith('R25'))">R25</RevitYearSuffix>
+    <RevitYearSuffix Condition="$(Configuration.EndsWith('R26'))">R26</RevitYearSuffix>
+    <RevitYearSuffix Condition="'$(RevitYearSuffix)'==''">R24</RevitYearSuffix>
+
+    <TargetFramework Condition="'$(RevitYearSuffix)'=='R24'">net48</TargetFramework>
+    <TargetFramework Condition="'$(RevitYearSuffix)'=='R25' Or '$(RevitYearSuffix)'=='R26'">net8.0-windows</TargetFramework>
+
     <RootNamespace>RevitHarness.Lookup</RootNamespace>
     <AssemblyName>RevitHarness.Lookup</AssemblyName>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
 
-  <ItemGroup>
+  <!-- LookupEngine binaries are vendored per-TFM under lib/LookupEngine (see CLAUDE.md for provenance/refresh) -->
+  <ItemGroup Condition="'$(RevitYearSuffix)'=='R24'">
     <Reference Include="LookupEngine">
-      <HintPath>..\..\lib\LookupEngine\LookupEngine.dll</HintPath>
+      <HintPath>..\..\lib\LookupEngine\net48\LookupEngine.dll</HintPath>
     </Reference>
     <Reference Include="LookupEngine.Abstractions">
-      <HintPath>..\..\lib\LookupEngine\LookupEngine.Abstractions.dll</HintPath>
+      <HintPath>..\..\lib\LookupEngine\net48\LookupEngine.Abstractions.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RevitYearSuffix)'=='R25' Or '$(RevitYearSuffix)'=='R26'">
+    <Reference Include="LookupEngine">
+      <HintPath>..\..\lib\LookupEngine\net8.0-windows\LookupEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="LookupEngine.Abstractions">
+      <HintPath>..\..\lib\LookupEngine\net8.0-windows\LookupEngine.Abstractions.dll</HintPath>
     </Reference>
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" />
-    <!-- RevitHarness.Lookup is net48-only (Revit 2024); pin explicitly rather than relying on the
-         R24/R25/R26 Configuration-suffix conditions in Directory.Packages.props, since this project's
-         own Configuration stays plain Debug/Release regardless of which Addin build references it -->
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" VersionOverride="2024.3.40" PrivateAssets="all" />
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" VersionOverride="2024.3.40" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" PrivateAssets="all" />
   </ItemGroup>
 </Project>

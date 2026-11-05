@@ -83,14 +83,6 @@ revit-harness run-command --dll "path/to/command.dll" --type "Company.MyCommand"
 
 `IHarnessCommand` または `IExternalCommand` を実装した型を実行。`IExternalCommand` には実物の `ExternalCommandData` が渡される（`commandData.Application` は実行中の `UIApplication`、`View` はアクティブドキュメントのアクティブビュー。ドキュメントが無ければ `null`）。`samples/SampleCommands` を参照。
 
-### post-command — 登録済み Revit コマンドの実行
-
-```bash
-revit-harness post-command --id "CustomCtrl_%CustomCtrl_%Add-Ins%Addin%Command"
-```
-
-Revit に登録されたリボンコマンドを ID 指定で実行。
-
 ### lookup — 要素インスペクション
 
 ```bash
@@ -107,11 +99,27 @@ revit-harness shutdown
 
 IPC サーバーを停止。Revit 本体は継続動作。
 
+### ダイアログ自動処理
+
+アドインは `DialogBoxShowing` と `FailuresProcessing` を購読し、allowlist（`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`）に一致するダイアログに答えます。記録は同じフォルダの `dialogs_{date}.jsonl` です。ハーネス自身は AI を呼びません。未知のダイアログは pending として登録され、呼び出し側（AI エージェントまたは人）が決めます。
+
+```bash
+revit-harness dialog-log [--count 50]     # 直近の JSONL 記録
+revit-harness reload-allowlist            # allowlist.json を再読込して検証
+revit-harness dialog-pending [--all]      # 未決のダイアログ（id、title、buttons、bodySummary、screenshotPath など）
+revit-harness dialog-decide --id <pendingId> --button "<ボタン名>" --by "<決めた者>" [--save-rule] [--timeout 10000]
+revit-harness dialog-watcher start|stop|status
+```
+
+コマンドが固まる・タイムアウトするときは `dialog-pending` を確認し、`bodySummary` とスクリーンショットを読んでから一覧のボタンを押します。`dialog-decide` はウォッチャーが UI Automation でボタンを押して完了するのを待ちます（終了コード 0 解決、1 却下/stale/失敗、2 ウォッチャーが拾わなかった）。`--save-rule` は戻せるボタン（OK、Cancel、Close）に限り allowlist ルールも保存します。
+
+ウォッチャー（`RevitHarness.DialogWatcher.exe`、.NET 10 Desktop Runtime が必要）は常駐せず、自動起動もしません。Revit 起動前に `dialog-watcher start`、終了後に `stop` します。Revit.exe と WerFault のトップレベル窓を UI Automation で監視し、既知のダイアログは allowlist のボタンを Invoke で押します（実マウスは使いません）。押してもダイアログが閉じなければ次の走査で再度押し、3 回押しても閉じなければ pending にします。詳細は英語版 README を参照してください。
+
 ### その他
 
 ```bash
-revit-harness version   # バージョン表示
-revit-harness help      # ヘルプ表示
+revit-harness version   # バージョン表示（--version、-v も可）
+revit-harness help      # ヘルプ表示（--help、-h も可）
 ```
 
 ## 終了コード
@@ -120,7 +128,9 @@ revit-harness help      # ヘルプ表示
 |--------|------|
 | 0 | 成功 |
 | 1 | 失敗（`ok=false` または `passed=false`） |
-| 2 | 接続/インフラエラー |
+| 2 | 接続/インフラエラー（Revit 未起動、または `--timeout` 内に応答なし） |
+
+`--timeout` 内に Revit が応答しない場合（多くはモーダルダイアログが Revit のメインスレッドを塞いでいる）、CLI は終了コード 2 で終わり、そのリクエストは破棄されます。Revit が空いたあとに遅れて実行されることはありません。`dialog-pending` を確認してダイアログを解決し、コマンドをもう一度実行してください。
 
 ## 対象アドインのホットリロード
 
@@ -244,12 +254,13 @@ Named Pipe `\\.\pipe\RevitHarness2024` 上で JSON メッセージを length-pre
 | `ping` | ヘルスチェック |
 | `runTests` | `ITestEntryPoint` 実行 |
 | `runCommand` | `IHarnessCommand` / `IExternalCommand` 実行 |
-| `postCommand` | 登録済み Revit コマンド実行 |
 | `reload` | 対象 IExternalApplication の世代を置換 |
 | `unload` | 対象世代を停止・破棄 |
 | `targetStatus` | 対象の状態・メモリ・世代・リボン割当 |
 | `lookupElement` | 要素インスペクション |
 | `shutdown` | IPC サーバー停止 |
+| `dialog-log` | 直近のダイアログ記録（パイプスレッドで応答。モーダル中も動作） |
+| `reload-allowlist` | ダイアログ allowlist の検証（同上） |
 
 ## 開発者向け
 

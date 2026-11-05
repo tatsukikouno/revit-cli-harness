@@ -59,7 +59,7 @@ namespace RevitHarness.Cli
             catch (OperationCanceledException)
             {
                 throw new TimeoutException(
-                    $"Revit did not answer '{request.Op}' within {timeoutMs}ms. If a modal dialog blocks Revit's main thread, run 'revit-harness dialog-pending' and 'revit-harness dialog-decide'; the request stays queued and runs once Revit is free.");
+                    $"Revit did not answer '{request.Op}' within {timeoutMs}ms. If a modal dialog blocks Revit's main thread, run 'revit-harness dialog-pending' and 'revit-harness dialog-decide'; the request is dropped when the client gives up and does not run later.");
             }
         }
 

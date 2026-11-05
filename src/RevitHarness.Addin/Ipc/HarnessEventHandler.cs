@@ -49,7 +49,8 @@ namespace RevitHarness.Addin.Ipc
             // Process all pending requests
             while (_server.TryDequeueRequest(out var item))
             {
-                var (request, callback) = item;
+                var request = item.Request;
+                var callback = item.Callback;
                 var sw = Stopwatch.StartNew();
                 _logs.Clear();
 

@@ -18,9 +18,11 @@ namespace RevitHarness.Dialogs.Shared.Tests
             return client;
         }
 
-        private static async Task Send(Stream stream, string op)
+        private static async Task Send(Stream stream, string op, int? timeoutMs = null)
         {
-            var body = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new IpcRequest { Id = op, Op = op }));
+            var request = new IpcRequest { Id = op, Op = op };
+            if (timeoutMs != null) request.Payload = new System.Collections.Generic.Dictionary<string, object> { ["timeoutMs"] = timeoutMs.Value };
+            var body = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(request));
             await stream.WriteAsync(BitConverter.GetBytes(body.Length), 0, 4);
             await stream.WriteAsync(body, 0, body.Length);
             await stream.FlushAsync();
@@ -70,6 +72,60 @@ namespace RevitHarness.Dialogs.Shared.Tests
             await Send(client, "dialog-log");
             var response = await Receive(client).WaitAsync(TimeSpan.FromSeconds(5));
             Assert.False(response.Ok);
+        }
+
+        [Fact]
+        public async Task RequestWhoseClientDisconnectedIsDroppedNotRunLate()
+        {
+            var pipe = "RevitHarnessTest" + Guid.NewGuid().ToString("N");
+            using var server = new IpcServer(_ => { }, pipe);
+            server.Start();
+
+            var gone = await Connect(pipe);
+            await Send(gone, "abandoned");
+            await Task.Delay(200);
+            gone.Dispose();
+            await Task.Delay(300);
+
+            using var alive = await Connect(pipe);
+            await Send(alive, "live");
+            await Task.Delay(200);
+
+            Assert.True(server.TryDequeueRequest(out var item));
+            Assert.Equal("live", item.Request.Op);
+            Assert.False(server.TryDequeueRequest(out _));
+        }
+
+        [Fact]
+        public async Task RequestPastItsDeadlineIsDroppedAndTheClientGetsATimeoutResponse()
+        {
+            var pipe = "RevitHarnessTest" + Guid.NewGuid().ToString("N");
+            using var server = new IpcServer(_ => { }, pipe);
+            server.Start();
+
+            using var client = await Connect(pipe);
+            await Send(client, "slow", timeoutMs: 200);
+            var response = await Receive(client).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(response.Ok);
+
+            Assert.False(server.TryDequeueRequest(out _));
+        }
+
+        [Fact]
+        public async Task RequestStillWaitingIsDequeuedAndItsResponseReachesTheClient()
+        {
+            var pipe = "RevitHarnessTest" + Guid.NewGuid().ToString("N");
+            using var server = new IpcServer(_ => { }, pipe);
+            server.Start();
+
+            using var client = await Connect(pipe);
+            await Send(client, "work");
+            await Task.Delay(200);
+
+            Assert.True(server.TryDequeueRequest(out var item));
+            item.Callback(IpcResponse.Success(item.Request.Id, new { }, 0));
+            var response = await Receive(client).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(response.Ok);
         }
     }
 }

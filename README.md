@@ -83,14 +83,6 @@ revit-harness run-command --dll "path/to/command.dll" --type "Company.MyCommand"
 
 Executes a type implementing `IHarnessCommand` or `IExternalCommand`. An `IExternalCommand` receives a real `ExternalCommandData` (`commandData.Application` is the running `UIApplication`; `View` is the active document's active view, or `null` without a document). See `samples/SampleCommands`.
 
-### post-command — Post a Registered Revit Command
-
-```bash
-revit-harness post-command --id "CustomCtrl_%CustomCtrl_%Add-Ins%Addin%Command"
-```
-
-Triggers a registered Revit ribbon command by its command ID.
-
 ### lookup — Element Inspection
 
 ```bash
@@ -142,13 +134,13 @@ Check for pending dialogs whenever a command seems stuck or times out (a modal d
 ### Other
 
 ```bash
-revit-harness version   # Show version
-revit-harness help      # Show help
+revit-harness version   # Show version (also --version, -v)
+revit-harness help      # Show help (also --help, -h)
 ```
 
 ## Dialog Watcher (FlaUI)
 
-`src/RevitHarness.DialogWatcher` is an on-demand exe (net10.0-windows, needs the .NET 10 Desktop Runtime, no Revit dependency) that watches Revit.exe top-level windows and Windows error reporting dialogs (WerFault) through UI Automation (WindowOpened event plus a 300 ms poll). Known dialogs are answered from the allowlist (`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`) by pressing the button with the UIA Invoke pattern (never the real mouse). Unknown dialogs get a UIA tree dump in `dialogs\dumps\`, a screenshot in `dialogs\screenshots\` and a JSONL log record plus a pending entry; nothing is pressed. `install` and `uninstall` refuse to run while Revit.exe is running (close Revit first), and `install`, `uninstall` and `dialog-watcher start|stop` take a cross-process lock and fail with a message when another one is running. `dialog-watcher start` fails with a message naming the .NET Desktop Runtime to install when it is missing.
+`src/RevitHarness.DialogWatcher` is an on-demand exe (net10.0-windows, needs the .NET 10 Desktop Runtime, no Revit dependency) that watches Revit.exe top-level windows and Windows error reporting dialogs (WerFault) through UI Automation (WindowOpened event plus a 300 ms poll). Known dialogs are answered from the allowlist (`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`) by pressing the button with the UIA Invoke pattern (never the real mouse). A press that leaves the dialog open is repeated on the next scan, up to three presses per window, and only for reversible buttons; after that the dialog becomes a pending entry. Unknown dialogs get a UIA tree dump in `dialogs\dumps\`, a screenshot in `dialogs\screenshots\` and a JSONL log record plus a pending entry; nothing is pressed. `install` and `uninstall` refuse to run while Revit.exe is running (close Revit first), and `install`, `uninstall` and `dialog-watcher start|stop` take a cross-process lock and fail with a message when another one is running. `dialog-watcher start` fails with a message naming the .NET Desktop Runtime to install when it is missing.
 
 ```bash
 dotnet build src/RevitHarness.DialogWatcher -c Debug -p:Platform=x64   # only needed when building from source
@@ -169,7 +161,9 @@ Exe options: `--once`, `--dry-run`, `--pid <revit pid>`. The allowlist, pending 
 |------|---------|
 | 0 | Success |
 | 1 | Failure (`ok=false` or `passed=false`) |
-| 2 | Connection / infrastructure error |
+| 2 | Connection / infrastructure error (Revit not running, or no answer within `--timeout`) |
+
+When Revit does not answer within `--timeout` (usually a modal dialog blocks its main thread), the CLI exits with 2 and the request is dropped: it does not run later when Revit becomes free. Check `dialog-pending`, resolve the dialog, then run the command again.
 
 ## Target add-in hot reload
 
@@ -297,12 +291,13 @@ JSON messages over Named Pipe `\\.\pipe\RevitHarness2024` with length-prefix fra
 | `ping` | Health check |
 | `runTests` | Execute `ITestEntryPoint` |
 | `runCommand` | Execute `IHarnessCommand` / `IExternalCommand` |
-| `postCommand` | Post a registered Revit command |
 | `reload` | Replace the target IExternalApplication generation |
 | `unload` | Stop and dispose the target generation |
 | `targetStatus` | Target state, memory, generations, ribbon slots |
 | `lookupElement` | Element inspection |
 | `shutdown` | Stop the IPC server |
+| `dialog-log` | Recent dialog records (answered on the pipe thread, works while a modal blocks Revit) |
+| `reload-allowlist` | Validate the dialog allowlist (same) |
 
 ## Development
 

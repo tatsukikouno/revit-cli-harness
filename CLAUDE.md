@@ -133,7 +133,6 @@ revit-harness run-command --dll <path> --type <typename> [--args '{"key":"value"
 revit-harness reload --dll <path> --type <IExternalApplication type> [--timeout <ms>]
 revit-harness unload [--timeout <ms>]
 revit-harness target-status
-revit-harness post-command --id <commandId>
 revit-harness lookup --id <elementId> [--depth <n>] [--max-members <n>] [--include-fields] [--include-private] [--include-static] [--filter <name>]
 revit-harness dialog-log [--count <n>]
 revit-harness reload-allowlist

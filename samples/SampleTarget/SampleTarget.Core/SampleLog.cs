@@ -2,13 +2,18 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
+
+[assembly: InternalsVisibleTo("SampleTarget")]
 
 namespace SampleTarget.Core
 {
-    public static class BuildInfo
+    // Internal on purpose: the target reads it through InternalsVisibleTo, which only works while the
+    // per-generation rename of the Core assembly also rewrites that attribute.
+    internal static class BuildInfo
     {
-        public static string Tag => typeof(BuildInfo).Assembly
+        internal static string Tag => typeof(BuildInfo).Assembly
             .GetCustomAttributes<AssemblyMetadataAttribute>()
             .Single(a => a.Key == "BuildTag").Value ?? "";
     }

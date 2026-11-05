@@ -193,7 +193,9 @@ TargetRibbon.AddPushButton(panel, "Hello", "Hello", typeof(HelloCommand).FullNam
 
 同じパネル上の同名ボタンは既存ボタンを再利用し、表示文字と現在世代への割当を更新する。
 Revit はリボン項目を削除できないため、ボタンは `RevitHarness.Addin.dll` の固定スタブ
-`TargetSlot0`〜`TargetSlot7` を呼ぶ。異なるボタンは最大 8 個。unload 後もボタンは残るが、
+`TargetSlot0`〜`TargetSlot31` を呼ぶ。異なるプッシュボタンは最大 32 個（スプリット／プルダウン内の子も数える）。
+`TargetRibbon.AddSplitButton` / `AddPulldownButton(panel, name, text)` も同名の既存コンテナを再利用し、子は
+`TargetRibbon.AddPushButton(container, name, text, commandType)` で追加する。ハーネス外で動かすと通常の Revit リボン項目を作る（例外は投げない）。unload 後もボタンは残るが、
 対象コードは実行できなくなる。
 
 ハーネスの `.addin` 自体が薄いローダーになる。成功した reload の DLL パスと型は

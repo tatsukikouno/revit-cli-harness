@@ -230,8 +230,12 @@ TargetRibbon.AddPushButton(panel, "Hello", "Hello", typeof(HelloCommand).FullNam
 
 A button with the same name on the same panel reuses the existing button, updates its text, and rebinds it to
 the current generation. Revit cannot remove ribbon items: buttons point to permanent
-`TargetSlot0`–`TargetSlot7` command stubs in `RevitHarness.Addin.dll`. At most eight distinct
-buttons are supported; after unload the buttons remain but cannot execute target code. The Revit home screen has no ribbon, so a click is possible only once a project is open.
+`TargetSlot0`–`TargetSlot31` command stubs in `RevitHarness.Addin.dll`. At most 32 distinct
+push buttons are supported (children of split buttons and pulldowns count); after unload the buttons remain but cannot execute target code. The Revit home screen has no ribbon, so a click is possible only once a project is open.
+
+`TargetRibbon.AddSplitButton(panel, name, text)` and `AddPulldownButton(panel, name, text)` reuse a same-named container the same way;
+add children with `TargetRibbon.AddPushButton(container, name, text, commandType)`. When the add-in runs outside the harness,
+these calls create ordinary Revit ribbon items instead of throwing.
 
 The harness `.addin` serves as the thin loader. Each successful reload saves the target DLL
 path and type to `%LOCALAPPDATA%\RevitHarness\target.json`. Harness startup restores that

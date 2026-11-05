@@ -40,7 +40,7 @@ old live ALC count (null on net48), and ribbonSlots. `status` checks installatio
 
 Use `TargetRibbon.AddPushButton(panel, name, text, commandType)` in target OnStartup.
 A button with the same name on the same panel is reused: updates text, and rebinds to the current generation.
-There are at most eight distinct slots. The harness DLL owns the permanent command stubs.
+There are at most 32 distinct push-button slots (children of split buttons and pulldowns count). `TargetRibbon.AddSplitButton`/`AddPulldownButton(panel, name, text)` reuse same-named containers; add children with `TargetRibbon.AddPushButton(container, ...)`. Outside the harness these calls create plain Revit ribbon items. The harness DLL owns the permanent command stubs.
 
 The harness `.addin` is the thin loader. A successful reload saves path/type to
 `%LOCALAPPDATA%\RevitHarness\target.json`; Revit startup restores it (failure is non-fatal).

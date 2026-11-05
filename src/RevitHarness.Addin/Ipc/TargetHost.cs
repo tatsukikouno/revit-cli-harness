@@ -29,8 +29,6 @@ namespace RevitHarness.Addin.Ipc
     /// </summary>
     public sealed class TargetHost : ITargetRibbonHost
     {
-        public const int SlotCount = 8;
-
         public static TargetHost? Instance { get; set; }
 
         private sealed class Started
@@ -53,13 +51,6 @@ namespace RevitHarness.Addin.Ipc
             public DateTime LoadedAt { get; }
         }
 
-        private sealed class Slot
-        {
-            public string Panel = string.Empty;
-            public string Name = string.Empty;
-            public string CommandType = string.Empty;
-        }
-
         private sealed class SavedTarget
         {
             [JsonProperty("assemblyPath")] public string AssemblyPath { get; set; } = string.Empty;
@@ -69,7 +60,7 @@ namespace RevitHarness.Addin.Ipc
         private readonly ShadowCopier _shadow;
         private readonly Action<string> _log;
         private readonly string _stateFile;
-        private readonly Slot?[] _slots = new Slot?[SlotCount];
+        private readonly SlotTable _slots = new SlotTable();
         private readonly List<WeakReference> _old = new List<WeakReference>();
         private UIControlledApplication? _uic;
         private Started? _current;
@@ -214,19 +205,15 @@ namespace RevitHarness.Addin.Ipc
 #if !NET48
             status.LiveOldGenerations = _old.Count;
 #endif
-            for (var i = 0; i < _slots.Length; i++)
-            {
-                var slot = _slots[i];
-                if (slot != null)
-                    status.RibbonSlots.Add(new RibbonSlotInfo { Slot = i, Panel = slot.Panel, Name = slot.Name, CommandType = slot.CommandType });
-            }
+            foreach (var occupied in _slots.Occupied())
+                status.RibbonSlots.Add(new RibbonSlotInfo { Slot = occupied.Key, Panel = occupied.Value.Panel, Name = occupied.Value.Name, CommandType = occupied.Value.CommandType });
             return status;
         }
 
         public Result ExecuteSlot(int index, ExternalCommandData commandData, ref string message, ElementSet elements)
         {
             var current = _current;
-            var slot = _slots[index];
+            var slot = _slots.Get(index);
             if (current == null || slot == null)
             {
                 message = "No target add-in generation is loaded. Run `revit-harness reload` first.";
@@ -243,30 +230,51 @@ namespace RevitHarness.Addin.Ipc
             return command.Execute(commandData, ref message, elements);
         }
 
-        public PushButton AddPushButton(RibbonPanel panel, string name, string text, string commandType)
+        public PushButton AddPushButton(RibbonPanel panel, string name, string text, string commandType) =>
+            BindPushButton(panel.GetItems(), panel.Name, name, text, commandType, panel.AddItem);
+
+        public PushButton AddPushButton(SplitButton split, string name, string text, string commandType) =>
+            BindPushButton(split.GetItems(), split.Name, name, text, commandType, split.AddPushButton);
+
+        public PushButton AddPushButton(PulldownButton pulldown, string name, string text, string commandType) =>
+            BindPushButton(pulldown.GetItems(), pulldown.Name, name, text, commandType, pulldown.AddPushButton);
+
+        public PulldownButton AddPulldownButton(RibbonPanel panel, string name, string text) =>
+            ReuseOrAdd<PulldownButton>(panel.GetItems(), panel.Name, name, text, () => new PulldownButtonData(name, text), panel.AddItem);
+
+        public SplitButton AddSplitButton(RibbonPanel panel, string name, string text) =>
+            ReuseOrAdd<SplitButton>(panel.GetItems(), panel.Name, name, text, () => new SplitButtonData(name, text), panel.AddItem);
+
+        private static T ReuseOrAdd<T>(IEnumerable<RibbonItem> siblings, string owner, string name, string text, Func<RibbonItemData> data, Func<RibbonItemData, RibbonItem> add)
+            where T : RibbonItem
+        {
+            var existing = siblings.FirstOrDefault(i => i.Name == name);
+            if (existing == null) return (T)add(data());
+            if (!(existing is T typed))
+                throw new InvalidOperationException($"Ribbon item '{name}' on '{owner}' is a {existing.GetType().Name}, not a {typeof(T).Name}.");
+            typed.ItemText = text;
+            return typed;
+        }
+
+        private PushButton BindPushButton(IEnumerable<RibbonItem> siblings, string owner, string name, string text, string commandType, Func<PushButtonData, RibbonItem> add)
         {
             var slotClass = typeof(TargetSlot0).Namespace + ".TargetSlot";
-            // The button already on this very panel identifies its slot, so same-named panels on different tabs never share one.
-            var existing = panel.GetItems().OfType<PushButton>().FirstOrDefault(b => b.Name == name);
+            // The button already inside this very owner identifies its slot, so same-named panels on different tabs never share one.
+            var existing = siblings.OfType<PushButton>().FirstOrDefault(b => b.Name == name);
             if (existing != null)
             {
                 if (!existing.ClassName.StartsWith(slotClass, StringComparison.Ordinal)
                     || !int.TryParse(existing.ClassName.Substring(slotClass.Length), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var existingIndex)
-                    || existingIndex >= SlotCount
-                    || _slots[existingIndex] == null)
-                    throw new InvalidOperationException($"Ribbon button '{name}' on panel '{panel.Name}' was not created by the harness.");
-                _slots[existingIndex]!.CommandType = commandType;
+                    || _slots.Get(existingIndex) == null)
+                    throw new InvalidOperationException($"Ribbon button '{name}' on '{owner}' was not created by the harness.");
+                _slots.Get(existingIndex)!.CommandType = commandType;
                 existing.ItemText = text;
                 return existing;
             }
 
-            var index = Array.FindIndex(_slots, s => s == null);
-            if (index < 0)
-                throw new InvalidOperationException($"At most {SlotCount} hot reloaded ribbon buttons are supported.");
+            var index = _slots.Allocate(owner, name, commandType);
             var data = new PushButtonData(name, text, typeof(TargetHost).Assembly.Location, slotClass + index);
-            var button = (PushButton)panel.AddItem(data);
-            _slots[index] = new Slot { Panel = panel.Name, Name = name, CommandType = commandType };
-            return button;
+            return (PushButton)add(data);
         }
 
         private static IExternalApplication Create(Generation generation, string typeName)
@@ -371,4 +379,52 @@ namespace RevitHarness.Addin.Ipc
     public sealed class TargetSlot6 : TargetSlotCommand { public TargetSlot6() : base(6) { } }
     [Transaction(TransactionMode.Manual)]
     public sealed class TargetSlot7 : TargetSlotCommand { public TargetSlot7() : base(7) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot8 : TargetSlotCommand { public TargetSlot8() : base(8) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot9 : TargetSlotCommand { public TargetSlot9() : base(9) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot10 : TargetSlotCommand { public TargetSlot10() : base(10) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot11 : TargetSlotCommand { public TargetSlot11() : base(11) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot12 : TargetSlotCommand { public TargetSlot12() : base(12) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot13 : TargetSlotCommand { public TargetSlot13() : base(13) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot14 : TargetSlotCommand { public TargetSlot14() : base(14) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot15 : TargetSlotCommand { public TargetSlot15() : base(15) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot16 : TargetSlotCommand { public TargetSlot16() : base(16) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot17 : TargetSlotCommand { public TargetSlot17() : base(17) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot18 : TargetSlotCommand { public TargetSlot18() : base(18) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot19 : TargetSlotCommand { public TargetSlot19() : base(19) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot20 : TargetSlotCommand { public TargetSlot20() : base(20) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot21 : TargetSlotCommand { public TargetSlot21() : base(21) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot22 : TargetSlotCommand { public TargetSlot22() : base(22) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot23 : TargetSlotCommand { public TargetSlot23() : base(23) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot24 : TargetSlotCommand { public TargetSlot24() : base(24) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot25 : TargetSlotCommand { public TargetSlot25() : base(25) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot26 : TargetSlotCommand { public TargetSlot26() : base(26) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot27 : TargetSlotCommand { public TargetSlot27() : base(27) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot28 : TargetSlotCommand { public TargetSlot28() : base(28) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot29 : TargetSlotCommand { public TargetSlot29() : base(29) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot30 : TargetSlotCommand { public TargetSlot30() : base(30) { } }
+    [Transaction(TransactionMode.Manual)]
+    public sealed class TargetSlot31 : TargetSlotCommand { public TargetSlot31() : base(31) { } }
 }

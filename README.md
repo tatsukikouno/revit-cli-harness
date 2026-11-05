@@ -200,7 +200,8 @@ subdirectories are copied but not bound (neutral resources embedded in the DLL w
 
 **References.** A file in the target directory with the same name as a file in the Revit install directory
 (`RevitAPI`, `RevitAPIUI`, `RevitAPIIFC`, `AdWindows`, `UIFramework`, `Newtonsoft.Json`, ...) is Revit's: the
-target's copy is never loaded, so a CopyLocal build cannot create a second `RevitAPI`. Other helper DLLs
+target's copy is not loaded, so a CopyLocal build cannot create a second `RevitAPI` (unless the target's copy has a
+higher assembly version than Revit's, which the target then owns). Other helper DLLs
 belong to the generation. On net8/net10 each generation is its own collectible `AssemblyLoadContext`; on
 net48 there is no unloadable context, so the harness renames the helper DLLs per generation (Mono.Cecil,
 names only) and loads each by path with `Assembly.LoadFile`.
@@ -388,7 +389,7 @@ revit-cli-harness/
 %LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\
 ```
 
-Each directory is a full copy of the target's output directory. After each reload or unload, directories of generations that are no longer live are deleted, except the newest three.
+Each Revit process uses its own `shadow\<pid>` folder; the next start deletes the folders of exited processes. Each directory is a full copy of the target's output directory. After each reload or unload, directories of generations that are no longer live are deleted, except the newest three. On net48 every generation stays loaded until Revit exits, so its copy stays too.
 
 ## License
 

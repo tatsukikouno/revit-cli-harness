@@ -32,12 +32,20 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
-        public void PendingDialogsDoNotChangeConnectionFailureOrNotReady()
+        public void PendingDialogsDoNotChangeConnectionFailure()
         {
             var pending = new[] { "abc123" };
 
             Assert.Equal(2, HarnessFailure.Describe(new HarnessFailureException(FailureKind.ConnectionFailed, "x"), pending).ExitCode);
-            Assert.Equal(3, HarnessFailure.Describe(new HarnessFailureException(FailureKind.HarnessNotReady, "x"), pending).ExitCode);
+            Assert.Equal(3, HarnessFailure.Describe(new HarnessFailureException(FailureKind.HarnessNotReady, "x"), NoDialogs).ExitCode);
+        }
+
+        [Fact]
+        public void StillStartingWithAPendingDialogIsDialogBlocked()
+        {
+            var report = HarnessFailure.Describe(new HarnessFailureException(FailureKind.HarnessNotReady, "starting"), new[] { "abc123" });
+
+            Assert.Equal(5, report.ExitCode);
         }
 
         [Fact]
@@ -47,7 +55,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
 
             var ids = HarnessFailure.LiveDialogIds(open, pid => pid == 100);
 
-            Assert.Equal(new[] { "live", "unknown-pid" }, ids);
+            Assert.Equal(new[] { "live" }, ids);
         }
     }
 }

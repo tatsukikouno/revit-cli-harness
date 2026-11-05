@@ -80,7 +80,7 @@ namespace RevitHarness.Cli.Installation
             }
 
             status.IsInstalled = IsInstalled(revitVersion);
-            if (status.ManifestExists) status.VendorId = AddinManifest.ReadVendorId(status.ManifestPath);
+            if (status.ManifestExists) status.VendorId = AddinManifest.TryReadVendorId(status.ManifestPath);
             return status;
         }
 
@@ -184,7 +184,13 @@ namespace RevitHarness.Cli.Installation
                 }
 
                 // A reinstall keeps the VendorId already installed unless one is given.
-                vendorId ??= File.Exists(manifestPath) ? AddinManifest.ReadVendorId(manifestPath) : null;
+                try { vendorId ??= File.Exists(manifestPath) ? AddinManifest.ReadVendorId(manifestPath) : null; }
+                catch (Exception ex) when (ex is IOException || ex is System.Xml.XmlException)
+                {
+                    result.Success = false;
+                    result.Message = $"The installed {manifestPath} cannot be read ({ex.Message}); pass --vendor-id to replace it.";
+                    return result;
+                }
 
                 var extractedFiles = new List<string>();
 
@@ -226,7 +232,7 @@ namespace RevitHarness.Cli.Installation
                     (stopped.Stopped ? ". The dialog watcher was running and has been stopped; run 'revit-harness dialog-watcher start' before launching Revit." : "");
                 result.InstalledFiles = extractedFiles;
                 result.InstallationFolder = installFolder;
-                result.VendorId = AddinManifest.ReadVendorId(manifestPath);
+                result.VendorId = AddinManifest.TryReadVendorId(manifestPath);
             }
             catch (Exception ex)
             {

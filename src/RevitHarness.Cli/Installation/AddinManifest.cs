@@ -13,9 +13,13 @@ namespace RevitHarness.Cli.Installation
     /// </summary>
     public static class AddinManifest
     {
-        public static string? ReadVendorId(string manifestPath)
+        /// <summary>The installed VendorId; throws when the manifest cannot be read, so a reinstall never swaps the identity silently.</summary>
+        public static string? ReadVendorId(string manifestPath) =>
+            XDocument.Load(manifestPath).Descendants("VendorId").FirstOrDefault()?.Value;
+
+        public static string? TryReadVendorId(string manifestPath)
         {
-            try { return XDocument.Load(manifestPath).Descendants("VendorId").FirstOrDefault()?.Value; }
+            try { return ReadVendorId(manifestPath); }
             catch (Exception ex) when (ex is IOException || ex is System.Xml.XmlException) { return null; }
         }
 

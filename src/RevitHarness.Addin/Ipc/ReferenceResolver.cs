@@ -47,7 +47,7 @@ namespace RevitHarness.Addin.Ipc
                 catch (BadImageFormatException) { log($"Skipping native DLL: {path}"); continue; }
 
                 var name = shadowName.Name!;
-                if (name == mainName)
+                if (string.Equals(name, mainName, StringComparison.OrdinalIgnoreCase))
                 {
                     plan.Owned[name] = path;
                     continue;

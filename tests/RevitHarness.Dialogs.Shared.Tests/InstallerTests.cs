@@ -67,6 +67,20 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.Equal("Acme & <Co>", NewInstaller().GetStatus(2024).VendorId);
         }
 
+        [Fact]
+        public void Install_without_a_vendor_id_refuses_to_replace_an_unreadable_manifest()
+        {
+            Assert.True(NewInstaller().Install(2024, "kept").Success);
+            File.WriteAllText(_layout.ManifestPath(2024), "<broken");
+
+            var result = NewInstaller().Install(2024);
+
+            Assert.False(result.Success);
+            Assert.Contains("--vendor-id", result.Message);
+            Assert.Equal("<broken", File.ReadAllText(_layout.ManifestPath(2024)));
+            Assert.True(NewInstaller().Install(2024, "kept").Success);
+        }
+
         [Theory]
         [InlineData("")]
         [InlineData("  ")]

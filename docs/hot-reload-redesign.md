@@ -28,8 +28,11 @@ The resolver (`ReferenceResolver.Plan`) classifies every managed DLL of the shad
 
 1. The entry assembly is owned.
 2. A name in the host set (`RevitHarness.Contracts`, `RevitAPI`, `RevitAPIUI`) is shared.
-3. A name that also exists in the Revit install directory is Revit's: shared if already loaded,
-   otherwise loaded from the Revit directory on demand. The target's copy is never loaded.
+3. A name that also exists in the Revit install directory is Revit's: shared if the copy loaded from the Revit
+   directory is running, otherwise loaded from the Revit directory on demand. The target's copy is not loaded.
+   One exception, kept on purpose: when the target ships a higher assembly version than Revit's file, the target
+   needs that version (Revit's older one would fail with `MissingMethodException`), so it owns it like any helper.
+   A copy another add-in loaded privately from elsewhere is never taken for Revit's.
 4. A name some other add-in already loaded, at least as new as the target's copy, is shared. Names the
    harness has owned before are excluded, so an old generation never hosts a new one.
 5. Everything else is owned by the generation.
@@ -51,7 +54,9 @@ Byte loading leaves `Assembly.Location` empty, and real add-ins use it to find f
 | `AssemblyResolve` / `CodeBase` mapping | Rejected. `CodeBase` of a byte-loaded assembly points at the loader; mapping hides the problem and breaks `Location` users anyway. |
 | **Load by path from a complete shadow copy of the target directory** | **Chosen.** `Location`, `CodeBase`, and relative files work unmodified. |
 
-The shadow directory is now a full recursive copy of the directory that holds the target DLL (every file,
+Shadow directories are per Revit process (`shadow\<pid>`; a later start deletes the roots of exited processes).
+On net48 every generation stays loaded until Revit exits, so its shadow copy stays too; net8+ deletes a copy once
+its context is collected, keeping the newest three. The shadow directory is now a full recursive copy of the directory that holds the target DLL (every file,
 not only `*.dll`, `*.pdb`, `*.config`). The generation loads by path from it:
 `AssemblyLoadContext.LoadFromAssemblyPath` on net8+, `Assembly.LoadFile` on net48 (unlike `LoadFrom`, it
 loads a second copy of an identity from another path). On net48 the Cecil rewrite is written back into the

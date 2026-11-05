@@ -51,11 +51,12 @@ namespace RevitHarness.Cli
         public const int DialogBlockedExit = 5;
 
         /// <summary>
-        /// A request that timed out while a dialog is pending is dialog-blocked: a modal dialog stops Revit's main thread.
+        /// A request that got no answer, or only "still starting", while a dialog is pending is dialog-blocked:
+        /// a modal dialog stops Revit's main thread (a restored target can raise one during OnStartup).
         /// </summary>
         public static FailureReport Describe(HarnessFailureException failure, IReadOnlyCollection<string> openPendingDialogIds)
         {
-            if (failure.Kind == FailureKind.Timeout && openPendingDialogIds.Count > 0)
+            if ((failure.Kind == FailureKind.Timeout || failure.Kind == FailureKind.HarnessNotReady) && openPendingDialogIds.Count > 0)
                 return new FailureReport(DialogBlockedExit, "DIALOG_BLOCKED",
                     $"Revit did not answer and {openPendingDialogIds.Count} dialog(s) are pending (ids: {string.Join(", ", openPendingDialogIds)}). Run 'revit-harness dialog-pending', then 'revit-harness dialog-decide'. {failure.Message}");
 
@@ -74,9 +75,9 @@ namespace RevitHarness.Cli
 
         /// <summary>
         /// Pending entries that can block the connected Revit: an entry whose process has exited (a crash, or a dialog
-        /// closed while no watcher ran) is stale and never explains a timeout.
+        /// closed while no watcher ran) or that names no process is stale and never explains a timeout.
         /// </summary>
         public static IReadOnlyCollection<string> LiveDialogIds(IEnumerable<(string Id, int? Pid)> open, Func<int, bool> isAlive) =>
-            open.Where(d => d.Pid == null || isAlive(d.Pid.Value)).Select(d => d.Id).ToArray();
+            open.Where(d => d.Pid != null && isAlive(d.Pid.Value)).Select(d => d.Id).ToArray();
     }
 }

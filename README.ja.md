@@ -166,7 +166,7 @@ DLL の隣へ**書いた**ファイルはシャドウに入り、次のリロー
 
 **参照。** 対象フォルダにある DLL のうち、Revit のインストールフォルダに同名のファイルがあるもの
 （`RevitAPI`、`RevitAPIUI`、`RevitAPIIFC`、`AdWindows`、`UIFramework`、`Newtonsoft.Json` など）は Revit のものとして扱い、
-対象側のコピーはロードしない。CopyLocal ビルドで 2 つ目の `RevitAPI` ができることはない。それ以外の補助 DLL は
+対象側のコピーはロードしない（対象側のアセンブリバージョンが Revit のものより高い場合だけ、対象の持ち物になる）。CopyLocal ビルドで 2 つ目の `RevitAPI` ができることはない。それ以外の補助 DLL は
 世代の持ち物。net8/net10 は世代ごとに収集可能な `AssemblyLoadContext`。net48 はアンロードできる
 コンテキストがないので、補助 DLL を世代ごとに名前だけ変えて（Mono.Cecil）`Assembly.LoadFile` でパス指定ロードする。
 
@@ -350,7 +350,7 @@ revit-cli-harness/
 %LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\
 ```
 
-各ディレクトリは対象の出力フォルダの完全なコピー。reload / unload のたびに、もう生存していない世代のディレクトリを削除する（新しい 3 つは残す）。
+Revit プロセスごとに `shadow\<pid>` フォルダを使い、次の起動時に終了済みプロセスのフォルダを削除する。各ディレクトリは対象の出力フォルダの完全なコピー。reload / unload のたびに、もう生存していない世代のディレクトリを削除する（新しい 3 つは残す）。net48 は全世代が Revit 終了までロードされたままなので、コピーも残る。
 
 ## ライセンス
 

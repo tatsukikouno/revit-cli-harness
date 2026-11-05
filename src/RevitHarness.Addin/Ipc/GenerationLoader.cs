@@ -108,7 +108,8 @@ namespace RevitHarness.Addin.Ipc
                     var renames = plan.Owned.Keys
                         .Where(n => !string.Equals(n, mainName, StringComparison.OrdinalIgnoreCase))
                         .ToDictionary(n => n, n => n + suffix, StringComparer.OrdinalIgnoreCase);
-                    foreach (var item in plan.Owned)
+                    // The entry assembly loads last, so nothing it binds while loading can miss a helper.
+                    foreach (var item in plan.Owned.OrderBy(i => string.Equals(i.Key, mainName, StringComparison.OrdinalIgnoreCase)))
                     {
                         if (renames.Count > 0) RewriteInPlace(item.Value, renames);
                         var key = renames.TryGetValue(item.Key, out var renamed) ? renamed : item.Key;
@@ -275,10 +276,15 @@ namespace RevitHarness.Addin.Ipc
             {
                 if (_owned.TryGetValue(name.Name!, out var path)) return LoadFromAssemblyPath(path);
                 if (_hosts.TryGetValue(name.Name!, out var host) && host.TryGetTarget(out var hostAssembly)) return hostAssembly;
+                // The Revit file is asked for by path first: the default binder would return a private copy another add-in loaded.
+                if (_revitFiles.TryGetValue(name.Name!, out var revitFile))
+                {
+                    try { return _hostContext.LoadFromAssemblyPath(revitFile); }
+                    catch (FileLoadException) { }
+                }
                 try { return _hostContext.LoadFromAssemblyName(name); }
-                catch (FileNotFoundException) { }
-                catch (FileLoadException) { }
-                return _revitFiles.TryGetValue(name.Name!, out var revitFile) ? _hostContext.LoadFromAssemblyPath(revitFile) : null;
+                catch (FileNotFoundException) { return null; }
+                catch (FileLoadException) { return null; }
             }
         }
 #endif

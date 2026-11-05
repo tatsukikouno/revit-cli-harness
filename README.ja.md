@@ -31,6 +31,7 @@ dotnet tool install -g RevitHarness.Cli
 # インストール: アドイン、ダイアログウォッチャー、SKILL を展開（再実行で上書き）
 revit-harness install --revit-version 2024   # 2024 / 2025 / 2026 / 2027
 revit-harness install --revit-version 2024 --skills-dir D:\my-skills   # SKILL の展開先を変更
+revit-harness install --revit-version 2024 --vendor-id <ベンダーID>      # 下の「VendorId」を参照
 
 # 状態確認
 revit-harness status
@@ -111,7 +112,7 @@ revit-harness dialog-decide --id <pendingId> --button "<ボタン名>" --by "<�
 revit-harness dialog-watcher start|stop|status
 ```
 
-コマンドが固まる・タイムアウトするときは `dialog-pending` を確認し、`bodySummary` とスクリーンショットを読んでから一覧のボタンを押します。`dialog-decide` はウォッチャーが UI Automation でボタンを押して完了するのを待ちます（終了コード 0 解決、1 却下/stale/失敗、2 ウォッチャーが拾わなかった）。`--save-rule` は戻せるボタン（OK、Cancel、Close）に限り allowlist ルールも保存します。学習ルールはタイトル、AutomationId、ボタン集合、本文ハッシュで一致します。タイトルが「外部ツール」(External Tool(s)) のダイアログ（「見つからないアドイン アセンブリ」など）は、本文で「アドイン」の直後にある引用符で囲まれたアドイン名（ファイルパスとその他の引用文は除く）を `<addin>` に置き換えてからハッシュするため、1 回の判断で、パスと文言が同じ全アドインのダイアログが閉じます。それ以外の本文の違いは一致しません。以前の版で学習したルールは全文をハッシュしているため一致しなくなります。`allowlist.json` から削除して、もう一度判断してください。
+コマンドが固まる・タイムアウトするときは `dialog-pending` を確認し、`bodySummary` とスクリーンショットを読んでから一覧のボタンを押します。`dialog-decide` はウォッチャーが UI Automation でボタンを押して完了するのを待ちます（終了コード 0 解決、1 却下/stale/失敗、4 ウォッチャーが拾わなかった）。`--save-rule` は戻せるボタン（OK、Cancel、Close）に限り allowlist ルールも保存します。学習ルールはタイトル、AutomationId、ボタン集合、本文ハッシュで一致します。タイトルが「外部ツール」(External Tool(s)) のダイアログ（「見つからないアドイン アセンブリ」など）は、本文で「アドイン」の直後にある引用符で囲まれたアドイン名（ファイルパスとその他の引用文は除く）を `<addin>` に置き換えてからハッシュするため、1 回の判断で、パスと文言が同じ全アドインのダイアログが閉じます。それ以外の本文の違いは一致しません。以前の版で学習したルールは全文をハッシュしているため一致しなくなります。`allowlist.json` から削除して、もう一度判断してください。
 
 ウォッチャー（`RevitHarness.DialogWatcher.exe`、.NET 10 Desktop Runtime が必要）は常駐せず、自動起動もしません。Revit 起動前に `dialog-watcher start`、終了後に `stop` します。Revit.exe と WerFault のトップレベル窓を UI Automation で監視し、既知のダイアログは allowlist のボタンを Invoke で押します（実マウスは使いません）。押してもダイアログが閉じなければ、戻せるボタンに限り次の走査で再度押します（1 つの窓につき最大 3 回）。それでも閉じなければ pending にします。詳細は英語版 README を参照してください。
 
@@ -128,16 +129,20 @@ revit-harness help      # ヘルプ表示（--help、-h も可）
 |--------|------|
 | 0 | 成功 |
 | 1 | 失敗（`ok=false` または `passed=false`） |
-| 2 | 接続/インフラエラー（Revit 未起動、または `--timeout` 内に応答なし） |
+| 2 | `CONNECTION_FAILED`: パイプがない、または切れた（Revit 未起動、ハーネス未ロード） |
+| 3 | `HARNESS_NOT_READY`: 接続できたがアドインが起動中（OnStartup と保存済み対象の復元）。数秒後に再試行 |
+| 4 | `TIMEOUT`: `--timeout` 内に応答がなく、保留ダイアログもない |
+| 5 | `DIALOG_BLOCKED`: 応答がなく、保留ダイアログがある（stderr に ID）。`dialog-pending` → `dialog-decide` |
 
-`--timeout` 内に Revit が応答しない場合（多くはモーダルダイアログが Revit のメインスレッドを塞いでいる）、CLI は終了コード 2 で終わります。Revit がまだ開始していないリクエストは破棄され、遅れて実行されることはありません。すでに開始したもの（コマンド自身がダイアログを出した場合など）は最後まで実行されるので、再実行の前に結果を確認してください。まず `dialog-pending` を確認してダイアログを解決します。
+終了コード 2〜5 では stderr の 1 行目が `revit-harness: <TOKEN>: <message>` になり、stdout の JSON も `error.code` に同じトークンを持ちます。Revit がまだ開始していないリクエストは破棄され、遅れて実行されることはありません。すでに開始したもの（コマンド自身がダイアログを出した場合など）は最後まで実行されるので、再実行の前に結果を確認してください。
 
 ## 対象アドインのホットリロード
 
-常駐する `IExternalApplication` と自前の補助 DLL を Revit 再起動なしで更新できる。
-Revit 2024 は net48、2025/2026 は net8.0-windows、2027 は net10.0-windows でビルドし、
-補助 DLL は本体の隣に配置する。Revit API 参照は `Private=False` にする。
-二重ロードを避けるため、対象自身の `.addin` は外し、ハーネス経由でロードする。
+常駐する `IExternalApplication` と自前の補助 DLL を、Revit 再起動なし・対象アドインのソース変更なしで
+更新できる。設計と、退けた代替案は [docs/hot-reload-redesign.md](docs/hot-reload-redesign.md)（英語）に書いてある。
+
+Revit 2024 は net48、2025/2026 は net8.0-windows、2027 は net10.0-windows で、Revit の Addins フォルダ
+**以外**の出力先にビルドし、ハーネス経由でだけロードする。
 
 ```bash
 revit-harness reload --dll "C:\path\SampleTarget.dll" --type SampleTarget.App [--timeout <ms>]
@@ -145,11 +150,40 @@ revit-harness target-status
 revit-harness unload [--timeout <ms>]
 ```
 
-リロードは旧 `OnShutdown` → 旧世代の破棄 → シャドウコピー → 新世代の作成 → 新 `OnStartup`
+リロードは旧 `OnShutdown` → 旧世代の破棄 → 対象フォルダのコピー → 新世代の作成 → 新 `OnStartup`
 の順。Shutdown 例外は警告として返して続行し、Startup 例外は失敗（`ok=false`）となり
 `Unloaded` 状態に戻る。`target-status` は現在世代、DLL パス・型、ロード時刻、ランタイム、
 ワーキングセット、作成済み世代数、生存中の旧 ALC 数（net48 は null）、リボンの割当を返す。
 `status` は引き続きインストール状態の確認用。
+
+**ファイルと `Assembly.Location`。** リロードのたびに、対象 DLL があるフォルダ全体（サブフォルダを含む全ファイル）を
+`%LOCALAPPDATA%\RevitHarness\shadow\<timestamp>\` にコピーし、そのコピーからパス指定でロードする。
+`Assembly.Location` はシャドウのパスになり、DLL の隣から読む設定・テンプレート・データもそこにあるので、
+`Assembly.Location` を使う既存コードは無改造で動く。アドイン側が知っておくこと:
+DLL の隣へ**書いた**ファイルはシャドウに入り、次のリロードで消える（永続する状態は `%APPDATA%` か
+`%LOCALAPPDATA%` に置く）。サブフォルダのサテライトリソースアセンブリはコピーされるが束縛されない
+（DLL に埋め込んだニュートラルリソースは動く）。
+
+**参照。** 対象フォルダにある DLL のうち、Revit のインストールフォルダに同名のファイルがあるもの
+（`RevitAPI`、`RevitAPIUI`、`RevitAPIIFC`、`AdWindows`、`UIFramework`、`Newtonsoft.Json` など）は Revit のものとして扱い、
+対象側のコピーはロードしない。CopyLocal ビルドで 2 つ目の `RevitAPI` ができることはない。それ以外の補助 DLL は
+世代の持ち物。net8/net10 は世代ごとに収集可能な `AssemblyLoadContext`。net48 はアンロードできる
+コンテキストがないので、補助 DLL を世代ごとに名前だけ変えて（Mono.Cecil）`Assembly.LoadFile` でパス指定ロードする。
+
+**ビルドが出力する `.addin`。** ビルドが対象自身のマニフェストを Addins フォルダに書くと、Revit が起動時に
+対象を自力でロードし、ハーネスが 2 つ目をロードしてしまう。退避する（リネームのみで何も削除しない。ビルドが
+ファイルを再生成したら再実行する。効くのは次の Revit 起動から）:
+
+```bash
+revit-harness prepare-target --addin "C:\path\Target.addin"            # Target.addin -> Target.addin.parked
+revit-harness prepare-target --addin "C:\path\Target.addin" --restore
+```
+
+**VendorId。** ベンダー ID で縛った Extensible Storage スキーマは、実行中アドインの `<VendorId>` と一致する必要が
+あり、ホットロードしたコードはハーネスのアドインとして動く。インストール時に指定する:
+`revit-harness install --revit-version 2024 --vendor-id <id>`。フラグなしの再インストールはインストール済みの
+ID を保つ。`status` で確認できる。Revit はマニフェストを起動時に読むので、**VendorId を変えたら Revit を
+再起動する**（install は元々 Revit を閉じて行う）。ID はコミットしない。対象自身の `.addin` も編集しない。
 
 対象の `OnStartup` では Contracts のヘルパーでボタンを登録する。
 
@@ -164,17 +198,16 @@ Revit はリボン項目を削除できないため、ボタンは `RevitHarness
 
 ハーネスの `.addin` 自体が薄いローダーになる。成功した reload の DLL パスと型は
 `%LOCALAPPDATA%\RevitHarness\target.json` に保存され、次回 Revit 起動時に復元されるので
-リボンが起動時に作られる。復元失敗は Revit 起動を妨げない。`unload` は対象を停止して
-このファイルを削除する。
+リボンが起動時に作られる。復元失敗は Revit 起動を妨げない（復元が終わるまでリクエストは
+`HARNESS_NOT_READY` になる）。`unload` は対象を停止してこのファイルを削除する。
 
-IUpdater は `application.ActiveAddInId`（ハーネスが対象を動かしている間はハーネスのID）で登録してください。他のIDだとRevitが拒否します。net48 では .NET Framework のバインダが同じ単純名の読み込み済みアセンブリを再利用するため、ハーネスは対象の自前DLLを世代ごとに名前だけ変えて（Mono.Cecil）読み込み、再ビルドした補助DLLが使われるようにしています。コマンドがホストの Newtonsoft.Json に自分の型（匿名オブジェクトなど）を渡してシリアライズすると、その型がライブラリのキャッシュに残り、net8以降の世代が解放されなくなります。
+IUpdater は `application.ActiveAddInId`（ハーネスが対象を動かしている間はハーネスのID）で登録してください。他のIDだとRevitが拒否します。コマンドがホストの Newtonsoft.Json に自分の型（匿名オブジェクトなど）を渡してシリアライズすると、その型がライブラリのキャッシュに残り、net8以降の世代が解放されなくなります。
 
 対象の `OnShutdown` は updater 登録解除、イベント購読解除、`ExternalEvent` とタイマーの
-Dispose、バックグラウンド処理の停止を行う必要がある。net8/net10 は世代ごとに新しい
-収集可能 AssemblyLoadContext を使うが、参照が残ると解放できない（`previousReleased`、
-`released`、warnings を確認）。net48 は毎回新しい世代を byte load し、旧世代は Revit 終了まで
-メモリに残る。ネイティブ DLL は非対応。byte load したアセンブリの `Assembly.Location` は空に
-なるため、これを使ったファイル探索に依存しないこと。
+Dispose、バックグラウンド処理の停止を行う必要がある。net8/net10 は参照が残ると世代を解放できない
+（`previousReleased`、`released`、warnings を確認）。net48 は旧世代が Revit 終了までメモリに残り、
+WPF の pack URI はアセンブリ名で解決されるため、対象の XAML リソースは最初の世代に束縛される。
+ネイティブ DLL は非対応。
 ビルド方法と世代・補助 DLL・イベント・updater・リボンの検証例は
 [SampleTarget](samples/SampleTarget/README.md) を参照。
 
@@ -317,7 +350,7 @@ revit-cli-harness/
 %LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\
 ```
 
-古いディレクトリは自動クリーンアップされる（最大 10 世代、1 日以上経過したものを削除）。
+各ディレクトリは対象の出力フォルダの完全なコピー。古いディレクトリは自動クリーンアップされる（最大 10 世代、1 日以上経過したものを削除。生存中の世代のディレクトリは残す）。
 
 ## ライセンス
 

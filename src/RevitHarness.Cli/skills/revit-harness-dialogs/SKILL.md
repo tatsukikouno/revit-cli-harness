@@ -38,7 +38,9 @@ the install command first (see the `revit-harness-install` skill).
 ## Unknown dialogs
 
 A dialog with no matching allowlist rule is left untouched and registered as pending. Check for
-pending dialogs whenever a command seems stuck or times out.
+pending dialogs whenever a command seems stuck or times out. Exit code 5 (`DIALOG_BLOCKED`, first stderr
+line `revit-harness: DIALOG_BLOCKED: ...` with the pending ids) means a request got no answer while a dialog
+was pending; exit 4 (`TIMEOUT`) means no dialog was pending.
 
 ```bash
 revit-harness dialog-pending [--all]
@@ -48,7 +50,7 @@ revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by
 1. Read `title`, `bodySummary` and the screenshot at `screenshotPath`.
 2. Pick one of the listed `buttons`, spelled exactly. A button that does not exist is rejected.
 3. Run `dialog-decide` with `--by` set to the agent or model name (mandatory). The watcher
-   presses the button; exit 0 = resolved, 1 = rejected, stale or failed, 2 = the watcher did
+   presses the button; exit 0 = resolved, 1 = rejected, stale or failed, 4 = the watcher did
    not pick it up (start it and retry).
 
 A dialog that disappears before the decision is marked `stale` and cannot be decided.

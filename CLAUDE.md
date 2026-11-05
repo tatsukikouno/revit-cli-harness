@@ -10,7 +10,7 @@ A Revit 2024/2025/2026/2027 harness add-in that enables external CLI/agent execu
 
 - **IPC Communication**: Named Pipe (`\\.\pipe\RevitHarness2024`) with JSON messages and int32 LE length-prefix framing
 - **Thread Safety**: All Revit API calls go through `ExternalEvent` → `HarnessEventHandler.Execute()` on Revit's main thread. A 100ms polling timer in `App.cs` raises the event when requests are pending.
-- **Generation loading**: Shadow-copy DLLs before loading. Revit 2024 byte-loads each new generation, including the target’s own helper DLLs; Revit 2025–2027 create a new collectible AssemblyLoadContext per generation. Revit API and Contracts stay shared. Old shadow directory cleanup protects active and live old generations.
+- **Generation loading**: The target’s whole output directory is copied to a shadow directory and loaded by path from there (so `Assembly.Location` and files beside the DLL work). Revit 2024 renames the helper DLLs per generation (Cecil) and loads them with `Assembly.LoadFile`; Revit 2025–2027 create a new collectible AssemblyLoadContext per generation. A DLL whose name also exists in the Revit install directory is Revit’s (`ReferenceResolver`); Revit API and Contracts stay shared. Old shadow directory cleanup protects active and live old generations. Design and rejected alternatives: `docs/hot-reload-redesign.md`.
 - **Mixed Frameworks**: Addin and Lookup both multi-target per Revit year via Configuration suffix (`R24`/`R25`/`R26`/`R27`) — `net48` for Revit 2024, `net8.0-windows` for Revit 2025/2026, `net10.0-windows` for Revit 2027. Contracts multi-targets `net48;net8.0-windows;net10.0-windows` directly (published NuGet package). CLI and DialogWatcher target .NET 10 (independent of Revit's runtime); the CLI targets `net10.0` (a `dotnet tool` cannot use a Windows-specific TFM).
 - **Embedded Resources**: CLI embeds the Addin build output as EmbeddedResources for self-contained `install` deployment. The DialogWatcher build output and `skills/` ship as plain files next to the CLI dll in the nupkg (`tools/net10.0/any/watcher`, `/skills`), and `install` copies them to `%LOCALAPPDATA%\RevitHarness\watcher` and `%USERPROFILE%\.claude\skills` (or `--skills-dir`)
 
@@ -69,6 +69,7 @@ src/
 │   │   ├── IpcServer.cs             # Named Pipe server with concurrent request queue
 │   │   ├── HarnessEventHandler.cs   # Dispatches IPC ops on Revit main thread
 │   │   ├── GenerationLoader.cs      # Runtime-specific generation loading
+│   │   ├── ReferenceResolver.cs     # Owned / hosted / Revit-directory classification of a generation's DLLs
 │   │   └── ShadowCopier.cs          # Shadow copying and generation creation
 │   └── UI/
 │       └── AddinManagerWindow.xaml   # GUI for browsing DLLs and executing commands
@@ -119,12 +120,13 @@ Operations dispatched in `HarnessEventHandler.ProcessRequest()`:
 - `dialog-log` — Return recent dialog JSONL records (`count`); handled off the main thread
 - `reload-allowlist` — Validate the dialog allowlist; handled off the main thread
 
-Exit codes: 0=success, 1=failure (`ok=false` or `passed=false`), 2=connection/timeout error
+Exit codes: 0=success, 1=failure (`ok=false` or `passed=false`), 2=CONNECTION_FAILED, 3=HARNESS_NOT_READY, 4=TIMEOUT, 5=DIALOG_BLOCKED (a dialog is pending). For 2-5 the first stderr line is `revit-harness: <TOKEN>: <message>` (`HarnessFailure` in `src/RevitHarness.Cli/Diagnostics`).
 
 ## CLI Usage
 
 ```bash
-revit-harness install --revit-version 2024 [--skills-dir <path>]
+revit-harness install --revit-version 2024 [--vendor-id <id>] [--skills-dir <path>]
+revit-harness prepare-target --addin <path to the target's .addin> [--restore]
 revit-harness uninstall --revit-version 2024 [--skills-dir <path>]
 revit-harness status [--revit-version 2024]
 revit-harness ping
@@ -158,7 +160,7 @@ permanent `TargetSlot0`–`TargetSlot7` stubs in the harness delegate to the cur
 events, dispose ExternalEvent and timers, and stop background work. net48 old generations
 remain until Revit exits; net8/net10 ALC release is cooperative and reported in results. WPF memoizes Assembly to AssemblyName in static caches
 (`SafeSecurityHelper._assemblies`) on any pack URI or XAML lookup; disposing a net8/net10 generation evicts its assemblies from them.
-Native DLLs are unsupported; byte-loaded Assembly.Location is empty.
+Native DLLs are unsupported. `Assembly.Location` is the shadow path; files the target writes beside its DLL are discarded on reload.
 See `samples/SampleTarget/README.md` and the `revit-harness-reload` skill for verification.
 
 ## Implementing Tests and Commands
@@ -185,7 +187,7 @@ revit-harness dialog-pending [--all]      # open entries (id, title, automationI
 revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by "<agent or model name>" [--save-rule] [--timeout 10000]
 ```
 
-Check for pending dialogs whenever a command seems stuck or times out (a modal dialog blocks Revit), read `bodySummary` and the screenshot, then press one of the listed buttons. A nonexistent button is rejected. The watcher (`revit-harness dialog-watcher start`) must be running: it presses the button by UI Automation and completes the entry, which the CLI waits for (exit 0 resolved, 1 rejected/stale/failed, 2 watcher did not pick it up; the request is then withdrawn). `--by` is mandatory and lands in the log as `decidedBy="external"`, `deciderName=<by>`. A dialog that disappears before the decision is marked `stale` and cannot be decided.
+Check for pending dialogs whenever a command seems stuck or times out (a modal dialog blocks Revit), read `bodySummary` and the screenshot, then press one of the listed buttons. A nonexistent button is rejected. The watcher (`revit-harness dialog-watcher start`) must be running: it presses the button by UI Automation and completes the entry, which the CLI waits for (exit 0 resolved, 1 rejected/stale/failed, 4 watcher did not pick it up; the request is then withdrawn). `--by` is mandatory and lands in the log as `decidedBy="external"`, `deciderName=<by>`. A dialog that disappears before the decision is marked `stale` and cannot be decided.
 
 `--save-rule` also writes an allowlist rule, but only for buttons known to be reversible (OK, Cancel, Close); a destructive button is pressed once and never learned, write that rule by hand if you really want it. A dialog covered by a `noLearn` rule is never saved, and neither is anything on the unsigned add-in security dialog. A learned rule matches on title, AutomationId, button set and a hash of the body text. For dialogs titled "External Tool(s)" ("外部ツール"), such as "Missing Add-in Assembly", the quoted add-in name that directly follows the word "add-in" in the body (file paths and other quoted text stay) is replaced by `<addin>` before hashing, so one decision covers the same dialog, with the same path and wording, for every add-in; any other text difference still means no match. Rules learned by an earlier version hashed the full text and no longer match: delete them from `allowlist.json` and decide once more.
 

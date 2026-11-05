@@ -51,8 +51,16 @@ namespace RevitHarness.Cli
 
             using var cts = new CancellationTokenSource(timeoutMs);
 
-            await WriteMessageAsync(_pipe, request, cts.Token);
-            return await ReadMessageAsync(_pipe, cts.Token);
+            try
+            {
+                await WriteMessageAsync(_pipe, request, cts.Token);
+                return await ReadMessageAsync(_pipe, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new TimeoutException(
+                    $"Revit did not answer '{request.Op}' within {timeoutMs}ms. Revit's main thread is probably blocked by a modal dialog: run 'revit-harness dialog-pending', then 'revit-harness dialog-decide'.");
+            }
         }
 
         private async Task WriteMessageAsync(Stream stream, IpcRequest request, CancellationToken ct)

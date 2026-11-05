@@ -24,6 +24,8 @@ namespace RevitHarness.DialogWatcher
         private readonly UIA3Automation automation = new UIA3Automation();
         private readonly AutoResetEvent signal = new AutoResetEvent(false);
         private readonly Dictionary<long, string> handled = new Dictionary<long, string>();
+        private readonly Dictionary<long, int> unclosedPresses = new Dictionary<long, int>();
+        private const int MaxPresses = 3;
         private readonly Dictionary<int, string> processNames = new Dictionary<int, string>();
 
         public int Processed { get; private set; }
@@ -73,6 +75,7 @@ namespace RevitHarness.DialogWatcher
         {
             var hwnds = new HashSet<long>(candidates.Select(c => c.Hwnd));
             foreach (var gone in handled.Keys.Where(h => !hwnds.Contains(h)).ToList()) handled.Remove(gone);
+            foreach (var gone in unclosedPresses.Keys.Where(h => !hwnds.Contains(h)).ToList()) unclosedPresses.Remove(gone);
         }
 
         private static readonly TimeSpan StaleGrace = TimeSpan.FromSeconds(2);
@@ -279,7 +282,12 @@ namespace RevitHarness.DialogWatcher
             var error = InvokeGuard.Run(() => target.Patterns.Invoke.Pattern.Invoke(), InvokeTimeout);
             if (error != null) { Skipped(decision, info, error, shot, dump, hwnd, pid); return; }
             pending.SupersedeApiEntries(pid, "watcher " + decision.Record.LogId);
-            Observe(decision, window, pid, hwnd, info.Title);
+            if (Observe(decision, window, pid, hwnd, info.Title)) { unclosedPresses.Remove(hwnd); return; }
+            // A click that lands while the dialog is still starting up is lost: look at the dialog again, and hand it to the caller if it keeps ignoring the button.
+            var presses = unclosedPresses.TryGetValue(hwnd, out var earlier) ? earlier + 1 : 1;
+            if (presses < MaxPresses) { unclosedPresses[hwnd] = presses; handled.Remove(hwnd); return; }
+            unclosedPresses.Remove(hwnd);
+            Skipped(decision, info, "'" + decision.Button.Name + "' was pressed " + presses + " times and the dialog stayed open", shot, dump, hwnd, pid);
         }
 
         // A rule matched but the button could not be pressed: leave the dialog visible to the caller as a pending entry.
@@ -296,7 +304,7 @@ namespace RevitHarness.DialogWatcher
             catch { return string.Empty; }
         }
 
-        private void Observe(DialogDecision decision, AutomationElement window, int pid, long hwnd, string? title)
+        private bool Observe(DialogDecision decision, AutomationElement window, int pid, long hwnd, string? title)
         {
             bool closed = false;
             string? next = null;
@@ -310,6 +318,7 @@ namespace RevitHarness.DialogWatcher
                 if (c.Hwnd != hwnd || (!closed && c.Title != title)) { next = c.Title; break; }
             }
             decider.LogOutcome(decision, closed, next);
+            return closed;
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);

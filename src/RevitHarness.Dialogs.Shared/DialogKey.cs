@@ -29,7 +29,7 @@ namespace RevitHarness.Dialogs
                 Title = Part(dialog.Title),
                 AutomationId = Part(dialog.AutomationId),
                 Buttons = buttons.OrderBy(b => b, StringComparer.Ordinal).ToList(),
-                TextHash = Hash(NormalizeText(dialog.Text))
+                TextHash = Hash(AddInNameNormalizer.Normalize(dialog))
             };
         }
 

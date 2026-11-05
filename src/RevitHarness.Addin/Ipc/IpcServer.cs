@@ -207,7 +207,7 @@ namespace RevitHarness.Addin.Ipc
 
                     if (!Ready)
                     {
-                        await WriteMessageAsync(pipe, IpcResponse.Failure(request.Id, ErrorCodes.HarnessNotReady, "RevitHarness is still starting (OnStartup and the saved-target restore have not finished). Retry in a few seconds.", 0), ct);
+                        await WriteMessageAsync(pipe, IpcResponse.Failure(request.Id, ErrorCodes.HarnessNotReady, "RevitHarness is still starting: Revit has not finished initializing (or the saved target is still being restored). Retry in a few seconds.", 0), ct);
                         continue;
                     }
 

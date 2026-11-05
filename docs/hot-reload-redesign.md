@@ -117,7 +117,7 @@ all of it. Chosen: one table, distinct exit codes, and a stable first stderr lin
 | 0 | | success |
 | 1 | `FAILED` or the operation's own error code | the operation ran and failed |
 | 2 | `CONNECTION_FAILED` | no pipe, or the pipe broke: Revit is not running or the harness add-in is not loaded |
-| 3 | `HARNESS_NOT_READY` | connected, but the add-in is still starting (it answers every request except `dialog-log` / `reload-allowlist` with this until `OnStartup` and the saved-target restore finish) |
+| 3 | `HARNESS_NOT_READY` | connected, but the add-in is still starting (it answers every request except `dialog-log` / `reload-allowlist` with this until `OnStartup`, the saved-target restore and Revit's `ApplicationInitialized` have finished; with a dialog pending it is `DIALOG_BLOCKED` instead) |
 | 4 | `TIMEOUT` | Revit did not answer in time and no dialog is pending |
 | 5 | `DIALOG_BLOCKED` | Revit did not answer in time and at least one dialog is pending; stderr lists the ids |
 

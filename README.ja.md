@@ -130,7 +130,7 @@ revit-harness help      # ヘルプ表示（--help、-h も可）
 | 0 | 成功 |
 | 1 | 失敗（`ok=false` または `passed=false`） |
 | 2 | `CONNECTION_FAILED`: パイプがない、または切れた（Revit 未起動、ハーネス未ロード） |
-| 3 | `HARNESS_NOT_READY`: 接続できたがアドインが起動中（OnStartup と保存済み対象の復元）。数秒後に再試行 |
+| 3 | `HARNESS_NOT_READY`: 接続できたが Revit の起動が終わっていない（アドインの OnStartup、保存済み対象の復元、`ApplicationInitialized`）。数秒後に再試行 |
 | 4 | `TIMEOUT`: `--timeout` 内に応答がなく、保留ダイアログもない |
 | 5 | `DIALOG_BLOCKED`: 応答がなく、保留ダイアログがある（stderr に ID）。`dialog-pending` → `dialog-decide` |
 

@@ -163,7 +163,7 @@ Exe options: `--once`, `--dry-run`, `--pid <revit pid>`. The allowlist, pending 
 | 0 | | Success |
 | 1 | | Failure (`ok=false` or `passed=false`, or a CLI error) |
 | 2 | `CONNECTION_FAILED` | No pipe or the pipe broke: Revit is not running, or the harness add-in is not loaded |
-| 3 | `HARNESS_NOT_READY` | Connected, but the add-in is still starting (OnStartup and the saved-target restore); retry in a few seconds |
+| 3 | `HARNESS_NOT_READY` | Connected, but Revit has not finished starting (add-in OnStartup, saved-target restore, `ApplicationInitialized`); retry in a few seconds |
 | 4 | `TIMEOUT` | Revit did not answer within `--timeout` and no dialog is pending |
 | 5 | `DIALOG_BLOCKED` | No answer and a dialog is pending; stderr lists the ids. Run `dialog-pending`, then `dialog-decide` |
 

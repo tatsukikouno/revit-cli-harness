@@ -72,6 +72,16 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
+        public void EntryAssemblyIsOwnedEvenWhenAResidentAssemblyHasTheSameName()
+        {
+            using var resident = Load(BuildTarget("v1"));
+            using var other = Generation.Load(BuildTarget("v2"), resident.Assemblies, _ => { });
+
+            Assert.NotSame(resident.Assembly, other.Assembly);
+            Assert.Equal("Mv2-Hv2", Tag(other));
+        }
+
+        [Fact]
         public void StaticStateIsIndependentPerGeneration()
         {
             using var first = Load(BuildTarget("v1"));

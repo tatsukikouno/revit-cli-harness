@@ -60,7 +60,7 @@ namespace RevitHarness.Addin.Ipc
                     catch (BadImageFormatException) { log($"Skipping native DLL: {path}"); continue; }
 
                     var name = shadowName.Name!;
-                    if (hosts.ContainsKey(name)) continue;
+                    if (name != mainName && hosts.ContainsKey(name)) continue;
                     // A copy another add-in already loaded is shared only when it is at least as new as the one shipped with the target.
                     var host = name == mainName || EverOwned.ContainsKey(name)
                         ? null

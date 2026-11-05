@@ -27,7 +27,7 @@ Status includes generation, path/type, loadedAt, runtime, working set, generatio
 old live ALC count (null on net48), and ribbonSlots. `status` checks installation instead.
 
 Use `TargetRibbon.AddPushButton(panel, name, text, commandType)` in target OnStartup.
-The same panel.Name/name reuses a button, updates text, and rebinds to the current generation.
+A button with the same name on the same panel is reused: updates text, and rebinds to the current generation.
 There are at most eight distinct slots. The harness DLL owns the permanent command stubs.
 
 The harness `.addin` is the thin loader. A successful reload saves path/type to

@@ -153,7 +153,7 @@ Shutdown exceptions are logged/warned and reload continues; startup exceptions f
 and leave state Unloaded. `target-status` is separate from installation `status`.
 
 Target OnStartup uses `TargetRibbon.AddPushButton(panel, name, text, commandType)`.
-The same `(panel.Name, name)` updates and rebinds a button. Revit cannot remove ribbon items:
+A button with the same name on the same panel (found through the panel's own button, so same-named panels on different tabs get separate slots) updates and rebinds. Revit cannot remove ribbon items:
 permanent `TargetSlot0`–`TargetSlot7` stubs in the harness delegate to the current generation
 (maximum eight distinct buttons). Target OnShutdown must unregister updaters, unsubscribe
 events, dispose ExternalEvent and timers, and stop background work. net48 old generations

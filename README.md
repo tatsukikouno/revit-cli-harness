@@ -196,7 +196,7 @@ In target `OnStartup`, register buttons with the Contracts helper:
 TargetRibbon.AddPushButton(panel, "Hello", "Hello", typeof(HelloCommand).FullName!);
 ```
 
-The same `(panel.Name, name)` reuses the existing button, updates its text, and rebinds it to
+A button with the same name on the same panel reuses the existing button, updates its text, and rebinds it to
 the current generation. Revit cannot remove ribbon items: buttons point to permanent
 `TargetSlot0`–`TargetSlot7` command stubs in `RevitHarness.Addin.dll`. At most eight distinct
 buttons are supported; after unload the buttons remain but cannot execute target code.

@@ -147,7 +147,7 @@ revit-harness unload [--timeout <ms>]
 TargetRibbon.AddPushButton(panel, "Hello", "Hello", typeof(HelloCommand).FullName!);
 ```
 
-同じ `(panel.Name, name)` は既存ボタンを再利用し、表示文字と現在世代への割当を更新する。
+同じパネル上の同名ボタンは既存ボタンを再利用し、表示文字と現在世代への割当を更新する。
 Revit はリボン項目を削除できないため、ボタンは `RevitHarness.Addin.dll` の固定スタブ
 `TargetSlot0`〜`TargetSlot7` を呼ぶ。異なるボタンは最大 8 個。unload 後もボタンは残るが、
 対象コードは実行できなくなる。

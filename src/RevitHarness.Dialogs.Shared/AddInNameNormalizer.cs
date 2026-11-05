@@ -5,9 +5,11 @@ namespace RevitHarness.Dialogs
 {
     public static class AddInNameNormalizer
     {
+        // Only a quoted token directly after the word "add-in" / "アドイン" is the add-in name. Other quoted text
+        // (exception messages, class names) stays, so different failures never share a rule.
         private static readonly Regex QuotedToken = new Regex(
-            "\"(?<name>[^\"\\r\\n\\u0085\\u2028\\u2029]*)\"|“(?<name>[^”\\r\\n\\u0085\\u2028\\u2029]*)”|‘(?<name>[^’\\r\\n\\u0085\\u2028\\u2029]*)’|「(?<name>[^」\\r\\n\\u0085\\u2028\\u2029]*)」",
-            RegexOptions.CultureInvariant);
+            "(?<=(?:add-?in|アドイン)\\s*)(?:\"(?<name>[^\"\\r\\n\\u0085\\u2028\\u2029]*)\"|“(?<name>[^”\\r\\n\\u0085\\u2028\\u2029]*)”|‘(?<name>[^’\\r\\n\\u0085\\u2028\\u2029]*)’|「(?<name>[^」\\r\\n\\u0085\\u2028\\u2029]*)」)",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         public static string Normalize(DialogInfo dialog)
         {

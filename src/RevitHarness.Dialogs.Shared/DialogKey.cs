@@ -35,6 +35,9 @@ namespace RevitHarness.Dialogs
 
         public static string NormalizeText(string? text) => Regex.Replace(text ?? string.Empty, @"\s+", " ").Trim();
 
+        // A learned rule ignores the add-in name; a pending entry and its decision must still name the very dialog that was reviewed.
+        public static bool SameBody(DialogInfo a, DialogInfo b) => NormalizeText(a.Text) == NormalizeText(b.Text);
+
         private static string Part(string? value) => (value ?? string.Empty).Trim();
 
         private static string Hash(string value)

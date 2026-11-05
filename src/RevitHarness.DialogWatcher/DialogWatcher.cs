@@ -138,7 +138,7 @@ namespace RevitHarness.DialogWatcher
             };
             if (options.DryRun) { Note(shadow, "dry-run", "would press '" + button.Name + "' for pending " + entry.Id); pending.Complete(entry.Id, false, "dry-run"); return; }
             var live = DialogCollector.Collect(window.Element, window.ProcessName);
-            if (entry.Key != null && !entry.Key.Equals(DialogKey.From(live)))
+            if (entry.Key != null && (!entry.Key.Equals(DialogKey.From(live)) || !DialogKey.SameBody(entry.Dialog, live)))
             { pending.Complete(entry.Id, false, "the dialog changed after it was reviewed; not pressed"); return; }
             var target = DialogCollector.FindButton(window.Element, button);
             if (target == null) { pending.Complete(entry.Id, false, "button not found in the live window"); return; }

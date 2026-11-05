@@ -47,7 +47,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
         [InlineData("外部ツール", "トランザクション属性が割り当てられていないため、アドイン \"{0}\" を実行できませんでした。詳細を確認してください。")]
         [InlineData("External Tools - Missing Assembly", "Assembly \"C:\\Addins\\Sample.dll\" does not exist; add-in \"{0}\" failed to initialize.")]
         [InlineData("External Tool - Transaction", "Add-in ‘{0}’ cannot execute because no transaction attribute is assigned.")]
-        public void LearnedRuleMatchesAnotherAddInAndPendingEntryIsReused(string title, string body)
+        public void LearnedRuleMatchesAnotherAddInAndPendingEntriesStaySeparate(string title, string body)
         {
             var first = Dialog(title, string.Format(body, "SampleAlpha"));
             var second = Dialog(title, string.Format(body, "SampleBeta"));
@@ -56,8 +56,10 @@ namespace RevitHarness.Dialogs.Shared.Tests
             var decider = Decider();
             var firstPending = decider.Decide(first, DialogSource.Watcher, hwnd: 5);
             var secondPending = decider.Decide(second, DialogSource.Watcher, hwnd: 5);
-            Assert.Equal(firstPending.PendingId, secondPending.PendingId);
-            Assert.Single(new PendingStore(directory).List(true));
+            Assert.NotEqual(firstPending.PendingId, secondPending.PendingId);
+            Assert.Equal(2, new PendingStore(directory).List(true).Count);
+            var reseen = decider.Decide(first, DialogSource.Watcher, hwnd: 5);
+            Assert.Equal(firstPending.PendingId, reseen.PendingId);
 
             var rule = Learn(first);
             var result = decider.Decide(second, DialogSource.Watcher);
@@ -120,10 +122,28 @@ namespace RevitHarness.Dialogs.Shared.Tests
         [Fact]
         public void NameLengthIsLimitedBeforeWhitespaceNormalization()
         {
-            var accepted = "\"" + new string('a', 200) + "\"";
-            var rejected = "\"" + new string('a', 201) + "\"";
-            Assert.Equal("\"<addin>\"", AddInNameNormalizer.Normalize(Dialog("External Tool", accepted)));
+            var accepted = "add-in \"" + new string('a', 200) + "\"";
+            var rejected = "add-in \"" + new string('a', 201) + "\"";
+            Assert.Equal("add-in \"<addin>\"", AddInNameNormalizer.Normalize(Dialog("External Tool", accepted)));
             Assert.Equal(rejected, AddInNameNormalizer.Normalize(Dialog("External Tool", rejected)));
+        }
+
+        [Fact]
+        public void OnlyTheTokenAfterAddInIsTheName()
+        {
+            string Body(string name, string detail) => $"Add-in “{name}” failed: “{detail}”.";
+            var first = Dialog(MissingAssemblyTitle, Body("SampleAlpha", "permission denied"));
+            Assert.Equal(DialogKey.From(first), DialogKey.From(Dialog(MissingAssemblyTitle, Body("SampleBeta", "permission denied"))));
+            Assert.NotEqual(DialogKey.From(first), DialogKey.From(Dialog(MissingAssemblyTitle, Body("SampleBeta", "invalid configuration"))));
+        }
+
+        [Fact]
+        public void PendingDecisionIsRejectedWhenAnotherAddInTookTheWindow()
+        {
+            var alpha = Dialog(MissingAssemblyTitle, MissingAssembly("SampleAlpha"));
+            var beta = Dialog(MissingAssemblyTitle, MissingAssembly("SampleBeta"));
+            Assert.False(DialogKey.SameBody(alpha, beta));
+            Assert.True(DialogKey.SameBody(alpha, Dialog(MissingAssemblyTitle, "  " + MissingAssembly("SampleAlpha") + "\n")));
         }
 
         [Fact]

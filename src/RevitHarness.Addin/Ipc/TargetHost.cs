@@ -136,12 +136,14 @@ namespace RevitHarness.Addin.Ipc
                 result.PreviousReleased = Released(lifetime);
             }
 
-            var shadowPath = _shadow.CopyToShadow(fullPath);
-            var generation = Generation.Load(shadowPath, HostAssemblies, _log);
-            var number = ++_generationsCreated;
+            Generation? generation = null;
             IExternalApplication? app = null;
+            int number;
             try
             {
+                var shadowPath = _shadow.CopyToShadow(fullPath);
+                generation = Generation.Load(shadowPath, HostAssemblies, _log);
+                number = ++_generationsCreated;
                 app = Create(generation, typeName);
                 var started = app.OnStartup(uic);
                 if (started != Result.Succeeded)
@@ -156,8 +158,11 @@ namespace RevitHarness.Addin.Ipc
                 }
                 app = null;
                 if (File.Exists(_stateFile)) File.Delete(_stateFile);
-                _old.Add(generation.Lifetime);
-                generation.Dispose();
+                if (generation != null)
+                {
+                    _old.Add(generation.Lifetime);
+                    generation.Dispose();
+                }
                 throw;
             }
 

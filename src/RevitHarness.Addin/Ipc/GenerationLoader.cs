@@ -74,6 +74,7 @@ namespace RevitHarness.Addin.Ipc
 #if NET48
             Generation generation = new ByteGeneration(shadowAssemblyPath, owned, hosts, log);
 #else
+            WpfAssemblyNameCache.Log = log;
             Generation generation = new CollectibleGeneration(shadowAssemblyPath, owned, hosts);
 #endif
             lock (RegistryLock)
@@ -87,6 +88,9 @@ namespace RevitHarness.Addin.Ipc
         {
             for (var i = 0; lifetime.IsAlive && i < 10; i++)
             {
+#if !NET48
+                WpfAssemblyNameCache.Evict();
+#endif
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
                 GC.Collect();
@@ -148,8 +152,8 @@ namespace RevitHarness.Addin.Ipc
                     lock (Live) mine = ReferenceEquals(Live.LastOrDefault(g => g._assemblies.ContainsKey(name)), this);
                 }
                 else mine = _assemblies.Values.Contains(args.RequestingAssembly);
-                _log($"Resolve {name} requester={args.RequestingAssembly?.GetName().Name ?? "null"} mine={mine} main={LoadedAssembly?.GetName().Name}");
                 if (!mine) return null;
+                _log($"Resolve {name} requester={args.RequestingAssembly?.GetName().Name ?? "null"} main={LoadedAssembly?.GetName().Name}");
                 if (_assemblies.TryGetValue(name, out var owned)) return owned;
                 return _hosts.TryGetValue(name, out var host) ? host : null;
             }
@@ -186,41 +190,70 @@ namespace RevitHarness.Addin.Ipc
                 var context = _context;
                 _context = null;
                 if (context == null) return;
-                var assemblies = context.Assemblies.ToArray();
+                context.Disposed = true;
                 context.Unload();
-                WpfAssemblyNameCache.Evict(assemblies);
+                WpfAssemblyNameCache.Evict();
             }
         }
 
         // WPF resolves pack URIs and XAML namespaces by walking AppDomain assemblies and memoizes each Assembly -> AssemblyName
-        // in static dictionaries that are never pruned. Any such lookup while a generation is live pins its collectible context.
+        // in static dictionaries that are never pruned. Any such lookup while a generation is live pins its collectible context,
+        // and a lookup between Unload and collection (the assembly is still enumerable) pins it again, so every sweep drops
+        // all entries that belong to a disposed generation.
         internal static class WpfAssemblyNameCache
         {
+            internal readonly struct Cache
+            {
+                public Cache(IDictionary entries, object gate) { Entries = entries; Gate = gate; }
+                public IDictionary Entries { get; }
+                public object Gate { get; }
+            }
+
             private static readonly (string Assembly, string Type)[] Owners =
             {
                 ("WindowsBase", "MS.Internal.WindowsBase.SafeSecurityHelper"),
                 ("PresentationCore", "MS.Internal.PresentationCore.SafeSecurityHelper"),
                 ("System.Xaml", "System.Xaml.SafeSecurityHelper")
             };
+            private const BindingFlags AnyStatic = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
 
-            internal static Func<IEnumerable<IDictionary>> Source { get; set; } = FindWpfCaches;
+            internal static Func<IEnumerable<Cache>> Source { get; set; } = FindWpfCaches;
+            internal static Action<string>? Log { get; set; }
+            private static bool _warned;
 
-            internal static void Evict(IEnumerable<Assembly> assemblies)
+            internal static void Evict()
             {
-                var targets = assemblies.ToArray();
                 foreach (var cache in Source())
-                    lock (cache)
-                        foreach (var assembly in targets) cache.Remove(assembly);
+                {
+                    object[] stale;
+                    lock (cache.Gate)
+                    {
+                        stale = cache.Entries.Keys.Cast<object>()
+                            .Where(k => k is Assembly a && AssemblyLoadContext.GetLoadContext(a) is GenerationContext { Disposed: true })
+                            .ToArray();
+                        foreach (var key in stale) cache.Entries.Remove(key);
+                    }
+                }
             }
 
-            private static IEnumerable<IDictionary> FindWpfCaches()
+            private static IEnumerable<Cache> FindWpfCaches()
             {
                 var loaded = AppDomain.CurrentDomain.GetAssemblies();
                 foreach (var (assemblyName, typeName) in Owners)
                 {
                     var assembly = loaded.FirstOrDefault(a => a.GetName().Name == assemblyName);
-                    var field = assembly?.GetType(typeName)?.GetField("_assemblies", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-                    if (field?.GetValue(null) is IDictionary cache) yield return cache;
+                    if (assembly == null) continue;
+                    var type = assembly.GetType(typeName);
+                    var entries = type?.GetField("_assemblies", AnyStatic)?.GetValue(null) as IDictionary;
+                    var gate = type?.GetField("syncObject", AnyStatic)?.GetValue(null);
+                    if (entries == null || gate == null)
+                    {
+                        if (_warned) continue;
+                        _warned = true;
+                        Log?.Invoke($"WPF assembly-name cache not found in {typeName}; a disposed generation may stay pinned.");
+                        continue;
+                    }
+                    yield return new Cache(entries, gate);
                 }
             }
         }
@@ -231,6 +264,7 @@ namespace RevitHarness.Addin.Ipc
             // Weak: a resident target's assemblies handed to a throwaway generation must not pin the target's context once it is replaced.
             private readonly Dictionary<string, WeakReference<Assembly>> _hosts;
             private readonly AssemblyLoadContext _hostContext = GetLoadContext(typeof(Generation).Assembly)!;
+            public bool Disposed { get; set; }
 
             public GenerationContext(Dictionary<string, string> owned, Dictionary<string, Assembly> hosts)
                 : base("RevitHarness-" + Guid.NewGuid().ToString("N"), isCollectible: true)

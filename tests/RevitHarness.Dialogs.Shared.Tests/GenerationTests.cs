@@ -132,24 +132,30 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private WeakReference LoadCacheAndDispose(string path, Dictionary<object, AssemblyName> cache)
+        private WeakReference LoadCacheAndDispose(string path, Dictionary<object, AssemblyName> cache, bool recacheAfterDispose)
         {
             var generation = Load(path);
-            foreach (var assembly in generation.Assemblies) cache[assembly] = assembly.GetName();
+            var assemblies = generation.Assemblies.ToArray();
+            foreach (var assembly in assemblies) cache[assembly] = assembly.GetName();
             var lifetime = generation.Lifetime;
             generation.Dispose();
+            if (recacheAfterDispose)
+                foreach (var assembly in assemblies) cache[assembly] = assembly.GetName();
             return lifetime;
         }
 
-        [Fact]
-        public void AssemblyNameCacheEntriesDoNotKeepDisposedGenerationAlive()
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void AssemblyNameCacheEntriesDoNotKeepDisposedGenerationAlive(bool recacheAfterDispose)
         {
             var cache = new Dictionary<object, AssemblyName>();
+            var gate = new object();
             var previous = Generation.WpfAssemblyNameCache.Source;
-            Generation.WpfAssemblyNameCache.Source = () => new[] { (System.Collections.IDictionary)cache };
+            Generation.WpfAssemblyNameCache.Source = () => new[] { new Generation.WpfAssemblyNameCache.Cache(cache, gate) };
             try
             {
-                var lifetime = LoadCacheAndDispose(BuildTarget("v1"), cache);
+                var lifetime = LoadCacheAndDispose(BuildTarget("v1"), cache, recacheAfterDispose);
 
                 Assert.True(Generation.WaitUntilCollected(lifetime));
                 Assert.Empty(cache);

@@ -52,7 +52,7 @@ namespace RevitHarness.Addin.Ipc
                 foreach (var name in plan.Owned.Keys) EverOwned.TryAdd(name, 0);
             }
 #if NET48
-            Generation generation = new PathGeneration(shadowAssemblyPath, plan, log);
+            Generation generation = new PathGeneration(shadowAssemblyPath, plan, revitDirectory, log);
 #else
             WpfAssemblyNameCache.Log = log;
             Generation generation = new CollectibleGeneration(shadowAssemblyPath, plan);
@@ -89,13 +89,15 @@ namespace RevitHarness.Addin.Ipc
             private readonly Dictionary<string, string> _revitFiles;
             private static readonly List<PathGeneration> Live = new List<PathGeneration>();
             private readonly Action<string> _log;
+            private readonly string? _revitDirectory;
             private static int _stamp;
             private ResolveEventHandler? _resolver;
             public override WeakReference Lifetime { get; }
             public override IReadOnlyCollection<Assembly> Assemblies => _assemblies.Values;
 
-            public PathGeneration(string path, ReferencePlan plan, Action<string> log) : base(path)
+            public PathGeneration(string path, ReferencePlan plan, string? revitDirectory, Action<string> log) : base(path)
             {
+                _revitDirectory = revitDirectory;
                 _hosts = plan.Hosts;
                 _revitFiles = plan.RevitFiles;
                 _log = log;
@@ -111,7 +113,7 @@ namespace RevitHarness.Addin.Ipc
                     // The entry assembly loads last, so nothing it binds while loading can miss a helper.
                     foreach (var item in plan.Owned.OrderBy(i => string.Equals(i.Key, mainName, StringComparison.OrdinalIgnoreCase)))
                     {
-                        if (renames.Count > 0) RewriteInPlace(item.Value, renames);
+                        if (renames.Count > 0) RewriteInPlace(item.Value, renames, _revitDirectory);
                         var key = renames.TryGetValue(item.Key, out var renamed) ? renamed : item.Key;
                         // LoadFile, unlike LoadFrom, loads a second copy of an identity from another path, and Location stays real.
                         _assemblies[key] = Assembly.LoadFile(item.Value);
@@ -124,12 +126,18 @@ namespace RevitHarness.Addin.Ipc
             }
 
             // The shadow directory belongs to this generation, so the rewritten helper replaces its own copy.
-            private static void RewriteInPlace(string dllPath, IReadOnlyDictionary<string, string> renames)
+            private static void RewriteInPlace(string dllPath, IReadOnlyDictionary<string, string> renames, string? revitDirectory)
             {
                 var pdbPath = Path.ChangeExtension(dllPath, ".pdb");
-                var (dll, pdb) = AssemblyRenamer.Rename(File.ReadAllBytes(dllPath), File.Exists(pdbPath) ? File.ReadAllBytes(pdbPath) : null, renames);
+                var (dll, pdb) = AssemblyRenamer.Rename(File.ReadAllBytes(dllPath), File.Exists(pdbPath) ? File.ReadAllBytes(pdbPath) : null, renames, SearchDirectories(dllPath, revitDirectory));
                 File.WriteAllBytes(dllPath, dll);
                 if (pdb != null) File.WriteAllBytes(pdbPath, pdb);
+            }
+
+            private static IEnumerable<string> SearchDirectories(string dllPath, string? revitDirectory)
+            {
+                yield return Path.GetDirectoryName(dllPath)!;
+                if (revitDirectory != null) yield return revitDirectory;
             }
 
             private Assembly? Resolve(object? sender, ResolveEventArgs args)

@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Mono.Cecil;
 using RevitHarness.Addin.Ipc;
 using System;
 using System.Collections.Generic;
@@ -193,14 +194,32 @@ namespace RevitHarness.Dialogs.Shared.Tests
         {
             var names = new Dictionary<string, string> { ["FxHelper"] = "FxHelper_g9" };
             var target = BuildTarget("v1");
-            var main = AssemblyRenamer.Rename(File.ReadAllBytes(target), null, names).Dll;
-            var helper = AssemblyRenamer.Rename(File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(target)!, "FxHelper.dll")), null, names).Dll;
+            var main = AssemblyRenamer.Rename(File.ReadAllBytes(target), null, names, Array.Empty<string>()).Dll;
+            var helper = AssemblyRenamer.Rename(File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(target)!, "FxHelper.dll")), null, names, Array.Empty<string>()).Dll;
 
             Assert.Equal("FxHelper_g9", AssemblyName.GetAssemblyName(WriteTemp(helper, "h.dll")).Name);
             using var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(main));
             var reader = pe.GetMetadataReader();
             Assert.Contains(reader.AssemblyReferences, r => reader.GetString(reader.GetAssemblyReference(r).Name) == "FxHelper_g9");
             Assert.DoesNotContain(reader.AssemblyReferences, r => reader.GetString(reader.GetAssemblyReference(r).Name) == "FxHelper");
+        }
+
+        [Fact]
+        public void RenameResolvesAnEnumDefaultFromTheSearchDirectories()
+        {
+            var apiDir = Path.Combine(Path.GetTempPath(), "fx-api-" + Guid.NewGuid().ToString("N"));
+            var helperDir = Path.Combine(Path.GetTempPath(), "fx-helper-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(apiDir);
+            Directory.CreateDirectory(helperDir);
+            Compile("FxApi", "namespace Fx { public enum Mode { A, B } }", apiDir);
+            Compile("FxEnumHelper", "namespace Fx { public static class H { public static int M(Mode m = Mode.B) => (int)m; } }", helperDir, Path.Combine(apiDir, "FxApi.dll"));
+            var bytes = File.ReadAllBytes(Path.Combine(helperDir, "FxEnumHelper.dll"));
+            var names = new Dictionary<string, string> { ["FxEnumHelper"] = "FxEnumHelper_g9" };
+
+            var renamed = AssemblyRenamer.Rename(bytes, null, names, new[] { apiDir }).Dll;
+
+            Assert.Equal("FxEnumHelper_g9", AssemblyName.GetAssemblyName(WriteTemp(renamed, "e.dll")).Name);
+            Assert.Throws<AssemblyResolutionException>(() => AssemblyRenamer.Rename(bytes, null, names, Array.Empty<string>()));
         }
 
         [Fact]
@@ -215,7 +234,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
                 Path.Combine(typeof(InternalsVisibleToAttribute).Assembly.Location));
             var names = new Dictionary<string, string> { ["FxHelper"] = "FxHelper_g9", ["Other"] = "Other_g9" };
 
-            var bytes = AssemblyRenamer.Rename(File.ReadAllBytes(Path.Combine(dir, "FxFriend.dll")), null, names).Dll;
+            var bytes = AssemblyRenamer.Rename(File.ReadAllBytes(Path.Combine(dir, "FxFriend.dll")), null, names, Array.Empty<string>()).Dll;
 
             using var module = Mono.Cecil.ModuleDefinition.ReadModule(new MemoryStream(bytes));
             var friends = module.Assembly.CustomAttributes.Where(c => c.AttributeType.Name == "InternalsVisibleToAttribute").Select(c => (string)c.ConstructorArguments[0].Value).ToArray();

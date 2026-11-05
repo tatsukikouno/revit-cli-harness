@@ -17,9 +17,12 @@ namespace RevitHarness.Addin.Ipc
     /// </summary>
     internal static class AssemblyRenamer
     {
-        public static (byte[] Dll, byte[]? Pdb) Rename(byte[] dll, byte[]? pdb, IReadOnlyDictionary<string, string> newNames)
+        public static (byte[] Dll, byte[]? Pdb) Rename(byte[] dll, byte[]? pdb, IReadOnlyDictionary<string, string> newNames, IEnumerable<string> searchDirectories)
         {
-            var module = Read(dll, pdb, out var withSymbols);
+            // Writing an enum-typed constant (an optional parameter default) resolves the enum's defining assembly, which for Revit types lives in the Revit directory.
+            using var resolver = new DefaultAssemblyResolver();
+            foreach (var directory in searchDirectories) resolver.AddSearchDirectory(directory);
+            var module = Read(dll, pdb, resolver, out var withSymbols);
             using (module)
             {
                 if (newNames.TryGetValue(module.Assembly.Name.Name, out var self))
@@ -56,7 +59,7 @@ namespace RevitHarness.Addin.Ipc
             }
         }
 
-        private static ModuleDefinition Read(byte[] dll, byte[]? pdb, out bool withSymbols)
+        private static ModuleDefinition Read(byte[] dll, byte[]? pdb, IAssemblyResolver resolver, out bool withSymbols)
         {
             if (pdb != null)
             {
@@ -67,7 +70,8 @@ namespace RevitHarness.Addin.Ipc
                         ReadSymbols = true,
                         SymbolStream = new MemoryStream(pdb),
                         SymbolReaderProvider = new PortablePdbReaderProvider(),
-                        InMemory = true
+                        InMemory = true,
+                        AssemblyResolver = resolver
                     });
                     withSymbols = true;
                     return module;
@@ -78,7 +82,7 @@ namespace RevitHarness.Addin.Ipc
                 }
             }
             withSymbols = false;
-            return ModuleDefinition.ReadModule(new MemoryStream(dll), new ReaderParameters { InMemory = true });
+            return ModuleDefinition.ReadModule(new MemoryStream(dll), new ReaderParameters { InMemory = true, AssemblyResolver = resolver });
         }
     }
 }

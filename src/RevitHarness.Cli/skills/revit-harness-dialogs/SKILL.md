@@ -61,6 +61,13 @@ any other choice, but no rule is written (add one by hand if you really want it)
 and "Do Not Load" are never learned, and nothing is learned from a dialog covered by a
 `noLearn` rule.
 
+A learned rule matches on title, AutomationId, button set and a hash of the body text. For
+dialogs titled "External Tool(s)" ("外部ツール"), such as "Missing Add-in Assembly", the quoted
+add-in name in the body (not file paths) is replaced by `<addin>` before hashing, so one decision
+covers every add-in; any other text difference means no match. Rules learned by an earlier
+version hashed the full text and no longer match: delete them from `allowlist.json` and decide
+once more.
+
 ### Unsigned add-in dialog
 
 "Security - Unsigned Add-in" is answered only by a rule with a `match.addIn` condition; a rule

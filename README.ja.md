@@ -111,7 +111,7 @@ revit-harness dialog-decide --id <pendingId> --button "<ボタン名>" --by "<�
 revit-harness dialog-watcher start|stop|status
 ```
 
-コマンドが固まる・タイムアウトするときは `dialog-pending` を確認し、`bodySummary` とスクリーンショットを読んでから一覧のボタンを押します。`dialog-decide` はウォッチャーが UI Automation でボタンを押して完了するのを待ちます（終了コード 0 解決、1 却下/stale/失敗、2 ウォッチャーが拾わなかった）。`--save-rule` は戻せるボタン（OK、Cancel、Close）に限り allowlist ルールも保存します。
+コマンドが固まる・タイムアウトするときは `dialog-pending` を確認し、`bodySummary` とスクリーンショットを読んでから一覧のボタンを押します。`dialog-decide` はウォッチャーが UI Automation でボタンを押して完了するのを待ちます（終了コード 0 解決、1 却下/stale/失敗、2 ウォッチャーが拾わなかった）。`--save-rule` は戻せるボタン（OK、Cancel、Close）に限り allowlist ルールも保存します。学習ルールはタイトル、AutomationId、ボタン集合、本文ハッシュで一致します。タイトルが「外部ツール」(External Tool(s)) のダイアログ（「見つからないアドイン アセンブリ」など）は、本文の引用符で囲まれたアドイン名（ファイルパスは除く）を `<addin>` に置き換えてからハッシュするため、1 回の判断で全アドインの同じダイアログが閉じます。それ以外の本文の違いは一致しません。以前の版で学習したルールは全文をハッシュしているため一致しなくなります。`allowlist.json` から削除して、もう一度判断してください。
 
 ウォッチャー（`RevitHarness.DialogWatcher.exe`、.NET 10 Desktop Runtime が必要）は常駐せず、自動起動もしません。Revit 起動前に `dialog-watcher start`、終了後に `stop` します。Revit.exe と WerFault のトップレベル窓を UI Automation で監視し、既知のダイアログは allowlist のボタンを Invoke で押します（実マウスは使いません）。押してもダイアログが閉じなければ、戻せるボタンに限り次の走査で再度押します（1 つの窓につき最大 3 回）。それでも閉じなければ pending にします。詳細は英語版 README を参照してください。
 

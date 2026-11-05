@@ -41,6 +41,10 @@ dotnet build src/RevitHarness.Contracts
 dotnet build src/RevitHarness.Addin -c "Debug R24" -p:Platform=x64
 dotnet build src/RevitHarness.Cli
 
+# Tests (Revit-free). The Framework project runs the net48 loader (Cecil rename + Assembly.LoadFile) and sits outside the solution.
+dotnet test tests/RevitHarness.Dialogs.Shared.Tests
+dotnet test tests/RevitHarness.Framework.Tests
+
 # Generate NuGet packages
 dotnet pack src/RevitHarness.Contracts -c Release
 dotnet pack src/RevitHarness.Cli -c Release

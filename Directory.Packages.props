@@ -24,13 +24,15 @@
     <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
 
     <!-- Revit API reference assemblies (compile-time only; Revit supplies the real DLLs at runtime) -->
-    <!-- Used by RevitHarness.Addin, selected by Configuration suffix (R24/R25/R26); R24 is also the
+    <!-- Used by RevitHarness.Addin / RevitHarness.Lookup, selected by Configuration suffix (R24/R25/R26/R27); R24 is also the
          fallback for a plain "Debug"/"Release" Configuration with no R2x suffix -->
-    <PackageVersion Include="Nice3point.Revit.Api.RevitAPI" Version="2024.3.40" Condition="$(Configuration.EndsWith('R24')) Or (!$(Configuration.EndsWith('R25')) And !$(Configuration.EndsWith('R26')))" />
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPI" Version="2024.3.40" Condition="$(Configuration.EndsWith('R24')) Or (!$(Configuration.EndsWith('R25')) And !$(Configuration.EndsWith('R26')) And !$(Configuration.EndsWith('R27')))" />
     <PackageVersion Include="Nice3point.Revit.Api.RevitAPI" Version="2025.4.0" Condition="$(Configuration.EndsWith('R25'))" />
     <PackageVersion Include="Nice3point.Revit.Api.RevitAPI" Version="2026.4.0" Condition="$(Configuration.EndsWith('R26'))" />
-    <PackageVersion Include="Nice3point.Revit.Api.RevitAPIUI" Version="2024.3.40" Condition="$(Configuration.EndsWith('R24')) Or (!$(Configuration.EndsWith('R25')) And !$(Configuration.EndsWith('R26')))" />
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPI" Version="2027.0.0" Condition="$(Configuration.EndsWith('R27'))" />
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPIUI" Version="2024.3.40" Condition="$(Configuration.EndsWith('R24')) Or (!$(Configuration.EndsWith('R25')) And !$(Configuration.EndsWith('R26')) And !$(Configuration.EndsWith('R27')))" />
     <PackageVersion Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.4.0" Condition="$(Configuration.EndsWith('R25'))" />
     <PackageVersion Include="Nice3point.Revit.Api.RevitAPIUI" Version="2026.4.0" Condition="$(Configuration.EndsWith('R26'))" />
+    <PackageVersion Include="Nice3point.Revit.Api.RevitAPIUI" Version="2027.0.0" Condition="$(Configuration.EndsWith('R27'))" />
   </ItemGroup>
 </Project>

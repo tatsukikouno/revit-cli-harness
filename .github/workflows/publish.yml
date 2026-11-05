@@ -65,7 +65,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
       # RevitHarness.Cli builds every Revit year's Addin and the dialog watcher itself, so packing needs no
       # separate build step.

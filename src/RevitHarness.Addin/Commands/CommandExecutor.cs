@@ -129,20 +129,22 @@ namespace RevitHarness.Addin.Commands
                     _log("Creating IExternalCommand instance");
                     var command = (IExternalCommand)Activator.CreateInstance(type)!;
 
-                    _log("Executing command (note: ExternalCommandData will be null)");
+                    _log("Executing IExternalCommand");
                     var message = string.Empty;
                     var elements = new ElementSet();
 
-                    var result = command.Execute(null!, ref message, elements);
+                    var result = command.Execute(ExternalCommandDataFactory.Create(uiapp, args), ref message, elements);
                     _log($"Command completed with result: {result}");
 
                     _shadowCopier.Cleanup();
+                    var resultText = string.IsNullOrEmpty(message)
+                        ? $"Result: {result}"
+                        : $"Result: {result}\n{message}";
                     return new CommandExecutionResult
                     {
-                        Success = true,
-                        ResultText = string.IsNullOrEmpty(message)
-                            ? $"Result: {result}"
-                            : $"Result: {result}\n{message}"
+                        Success = result == Result.Succeeded,
+                        ResultText = resultText,
+                        ErrorMessage = result == Result.Succeeded ? null : resultText
                     };
                 }
 

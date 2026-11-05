@@ -3,7 +3,7 @@
 [![NuGet RevitHarness.Cli](https://img.shields.io/nuget/v/RevitHarness.Cli.svg?label=RevitHarness.Cli)](https://www.nuget.org/packages/RevitHarness.Cli/)
 [![NuGet RevitHarness.Contracts](https://img.shields.io/nuget/v/RevitHarness.Contracts.svg?label=RevitHarness.Contracts)](https://www.nuget.org/packages/RevitHarness.Contracts/)
 
-A harness add-in for Revit 2024 that enables CLI and agent-driven test execution, command execution, and element inspection against a running Revit instance. Supports DLL hot-swapping without restarting Revit.
+A harness add-in for Revit 2024, 2025, 2026 and 2027 that enables CLI and agent-driven test execution, command execution, and element inspection against a running Revit instance. Supports DLL hot-swapping without restarting Revit.
 
 [日本語版 README](README.ja.md)
 
@@ -19,6 +19,8 @@ A harness add-in for Revit 2024 that enables CLI and agent-driven test execution
 
 ### CLI Tool
 
+Requires the .NET 10 SDK or runtime.
+
 ```bash
 dotnet tool install -g RevitHarness.Cli
 ```
@@ -27,7 +29,7 @@ dotnet tool install -g RevitHarness.Cli
 
 ```bash
 # Install: the add-in, the dialog watcher and the SKILLs (re-running overwrites cleanly)
-revit-harness install --revit-version 2024
+revit-harness install --revit-version 2024   # 2024, 2025, 2026 or 2027
 revit-harness install --revit-version 2024 --skills-dir D:\my-skills   # SKILLs elsewhere
 
 # Check status
@@ -79,7 +81,7 @@ Executes an `ITestEntryPoint` implementation from the specified DLL. The exit co
 revit-harness run-command --dll "path/to/command.dll" --type "Company.MyCommand" [--args '{"key":"value"}'] [--timeout 300000]
 ```
 
-Executes a type implementing `IHarnessCommand` or `IExternalCommand`.
+Executes a type implementing `IHarnessCommand` or `IExternalCommand`. An `IExternalCommand` receives a real `ExternalCommandData` (`commandData.Application` is the running `UIApplication`; `View` is the active document's active view, or `null` without a document). See `samples/SampleCommands`.
 
 ### post-command — Post a Registered Revit Command
 
@@ -146,7 +148,7 @@ revit-harness help      # Show help
 
 ## Dialog Watcher (FlaUI)
 
-`src/RevitHarness.DialogWatcher` is an on-demand exe (net8.0-windows, needs the .NET 8 Desktop Runtime, no Revit dependency) that watches Revit.exe top-level windows and Windows error reporting dialogs (WerFault) through UI Automation (WindowOpened event plus a 300 ms poll). Known dialogs are answered from the allowlist (`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`) by pressing the button with the UIA Invoke pattern (never the real mouse). Unknown dialogs get a UIA tree dump in `dialogs\dumps\`, a screenshot in `dialogs\screenshots\` and a JSONL log record plus a pending entry; nothing is pressed. `install` and `uninstall` refuse to run while Revit.exe is running (close Revit first), and `install`, `uninstall` and `dialog-watcher start|stop` take a cross-process lock and fail with a message when another one is running. `dialog-watcher start` fails with a message naming the .NET Desktop Runtime to install when it is missing.
+`src/RevitHarness.DialogWatcher` is an on-demand exe (net10.0-windows, needs the .NET 10 Desktop Runtime, no Revit dependency) that watches Revit.exe top-level windows and Windows error reporting dialogs (WerFault) through UI Automation (WindowOpened event plus a 300 ms poll). Known dialogs are answered from the allowlist (`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`) by pressing the button with the UIA Invoke pattern (never the real mouse). Unknown dialogs get a UIA tree dump in `dialogs\dumps\`, a screenshot in `dialogs\screenshots\` and a JSONL log record plus a pending entry; nothing is pressed. `install` and `uninstall` refuse to run while Revit.exe is running (close Revit first), and `install`, `uninstall` and `dialog-watcher start|stop` take a cross-process lock and fail with a message when another one is running. `dialog-watcher start` fails with a message naming the .NET Desktop Runtime to install when it is missing.
 
 ```bash
 dotnet build src/RevitHarness.DialogWatcher -c Debug -p:Platform=x64   # only needed when building from source

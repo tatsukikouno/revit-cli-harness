@@ -125,7 +125,6 @@ namespace RevitHarness.Addin.Ipc
         public const string InternalError = "INTERNAL_ERROR";
         public const string ElementNotFound = "ELEMENT_NOT_FOUND";
         public const string NoActiveDocument = "NO_ACTIVE_DOCUMENT";
-        public const string NotSupported = "NOT_SUPPORTED";
     }
 
     /// <summary>

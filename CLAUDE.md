@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Revit 2024/2025/2026 harness add-in that enables external CLI/agent execution of tests, commands, and (Revit 2024 only) element inspection within a running Revit instance. Supports DLL hot-swapping via shadow copy + byte-array loading without restarting Revit.
+A Revit 2024/2025/2026/2027 harness add-in that enables external CLI/agent execution of tests, commands, and element inspection within a running Revit instance. Supports DLL hot-swapping via shadow copy + byte-array loading without restarting Revit.
 
 ### Key Architecture
 
 - **IPC Communication**: Named Pipe (`\\.\pipe\RevitHarness2024`) with JSON messages and int32 LE length-prefix framing
 - **Thread Safety**: All Revit API calls go through `ExternalEvent` → `HarnessEventHandler.Execute()` on Revit's main thread. A 100ms polling timer in `App.cs` raises the event when requests are pending.
 - **Shadow Copy + Byte Load**: DLLs are copied to `%LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\`, then loaded via `Assembly.Load(byte[])` to bypass the .NET assembly cache entirely. This enables true hot-reload of same-name/same-version assemblies. Old shadow dirs auto-clean (max 10 generations, >1 day old).
-- **Mixed Frameworks**: Addin multi-targets per Revit year via Configuration suffix (`R24`/`R25`/`R26`) — `net48` for Revit 2024, `net8.0-windows` for Revit 2025/2026. Contracts multi-targets `net48;net8.0-windows` directly (published NuGet package). Lookup stays `net48`-only (Revit 2024 only, see `lookupElement` note below). CLI targets `net8.0` (a `dotnet tool` cannot use a Windows-specific TFM).
-- **Embedded Resources**: CLI embeds the Addin build output as EmbeddedResources for self-contained `install` deployment. The DialogWatcher build output and `skills/` ship as plain files next to the CLI dll in the nupkg (`tools/net8.0/any/watcher`, `/skills`), and `install` copies them to `%LOCALAPPDATA%\RevitHarness\watcher` and `%USERPROFILE%\.claude\skills` (or `--skills-dir`)
+- **Mixed Frameworks**: Addin and Lookup both multi-target per Revit year via Configuration suffix (`R24`/`R25`/`R26`/`R27`) — `net48` for Revit 2024, `net8.0-windows` for Revit 2025/2026, `net10.0-windows` for Revit 2027. Contracts multi-targets `net48;net8.0-windows;net10.0-windows` directly (published NuGet package). CLI and DialogWatcher target .NET 10 (independent of Revit's runtime); the CLI targets `net10.0` (a `dotnet tool` cannot use a Windows-specific TFM).
+- **Embedded Resources**: CLI embeds the Addin build output as EmbeddedResources for self-contained `install` deployment. The DialogWatcher build output and `skills/` ship as plain files next to the CLI dll in the nupkg (`tools/net10.0/any/watcher`, `/skills`), and `install` copies them to `%LOCALAPPDATA%\RevitHarness\watcher` and `%USERPROFILE%\.claude\skills` (or `--skills-dir`)
 
 ### NuGet Packages
 
@@ -30,6 +30,7 @@ A Revit 2024/2025/2026 harness add-in that enables external CLI/agent execution 
 dotnet build src/RevitHarness.Addin -c "Debug R24" -p:Platform=x64    # Revit 2024 (net48)
 dotnet build src/RevitHarness.Addin -c "Debug R25" -p:Platform=x64    # Revit 2025 (net8.0-windows)
 dotnet build src/RevitHarness.Addin -c "Debug R26" -p:Platform=x64    # Revit 2026 (net8.0-windows)
+dotnet build src/RevitHarness.Addin -c "Debug R27" -p:Platform=x64    # Revit 2027 (net10.0-windows)
 
 # Build the solution (Platform=x64 is resolved automatically via the .sln's configuration mapping).
 # Plain Debug/Release map Addin to its R24/Revit-2024 build, for backward compatibility.
@@ -45,18 +46,18 @@ dotnet pack src/RevitHarness.Contracts -c Release
 dotnet pack src/RevitHarness.Cli -c Release
 ```
 
-**Important**: `RevitHarness.Cli` builds the Addin for `R24`/`R25`/`R26` and `RevitHarness.DialogWatcher` itself (target `BundleAddinAndWatcher` in `RevitHarness.Cli.csproj`) and embeds the results, so `dotnet build src/RevitHarness.Cli` and a plain `dotnet pack src/RevitHarness.Cli -c Release` need no earlier build step. Each year restores into its own `obj\R24|R25|R26` directory (`src/RevitHarness.Addin/Directory.Build.props`), and the target removes the inherited `TargetFramework` global property: `dotnet pack` re-enters the CLI project with `TargetFramework=net8.0`, which otherwise overrides the Addin's per-year TFM and fails with NETSDK1136. `lookupElement` is only available in the R24 (Revit 2024, net48) build — R25/R26 builds return a `NOT_SUPPORTED` error for that operation because the `RevitHarness.Lookup` dependency (`lib/LookupEngine/*.dll`) is net48-only.
+**Important**: `RevitHarness.Cli` builds the Addin for `R24`/`R25`/`R26`/`R27` and `RevitHarness.DialogWatcher` itself (target `BundleAddinAndWatcher` in `RevitHarness.Cli.csproj`) and embeds the results, so `dotnet build src/RevitHarness.Cli` and a plain `dotnet pack src/RevitHarness.Cli -c Release` need no earlier build step. Each year restores into its own `obj\R24|R25|R26|R27` directory (`src/RevitHarness.Addin/Directory.Build.props`), and the target removes the inherited `TargetFramework` global property: `dotnet pack` re-enters the CLI project with `TargetFramework=net10.0`, which otherwise overrides the Addin's per-year TFM and fails with NETSDK1136.
 
 ## Project Structure
 
 ```
 src/
-├── RevitHarness.Contracts/          # net48 - Shared interfaces (NuGet package)
+├── RevitHarness.Contracts/          # net48;net8.0-windows;net10.0-windows - Shared interfaces (NuGet package)
 │   ├── ITestEntryPoint.cs           # Test entry point interface
 │   ├── IHarnessCommand.cs           # CLI-only command interface
 │   └── HarnessCommandBase.cs        # Dual-use: CLI (IHarnessCommand) + Ribbon (IExternalCommand)
 │
-├── RevitHarness.Addin/              # net48 - Revit add-in (UseWPF=true)
+├── RevitHarness.Addin/              # net48 (R24) / net8.0-windows (R25/R26) / net10.0-windows (R27) - Revit add-in (UseWPF=true)
 │   ├── App.cs                       # IExternalApplication: starts IpcServer, ExternalEvent, ribbon
 │   ├── Commands/
 │   │   ├── CommandExecutor.cs       # Shadow copy + reflection execution engine
@@ -70,29 +71,35 @@ src/
 │   └── UI/
 │       └── AddinManagerWindow.xaml   # GUI for browsing DLLs and executing commands
 │
-├── RevitHarness.Lookup/             # net48 - Element inspection (RevitLookup-style)
+├── RevitHarness.Lookup/             # net48 (R24) / net8.0-windows (R25/R26) / net10.0-windows (R27) - Element inspection (RevitLookup-style)
 │   ├── ElementInspector.cs          # Main inspection entry point
 │   ├── InspectOptions.cs            # Depth, filters, member visibility options
 │   └── Descriptors/                 # Type-specific value formatters (Element, XYZ, Curve, etc.)
 │
-└── RevitHarness.Cli/                # net8.0 - CLI tool (dotnet tool)
+└── RevitHarness.Cli/                # net10.0 - CLI tool (dotnet tool)
     ├── Program.cs                   # Command routing (manual arg parsing, no library)
     ├── IpcClient.cs                 # Named Pipe client
     ├── IpcMessages.cs               # Message classes (separate copy from Addin)
     └── Installation/
         └── RevitInstaller.cs        # Extracts embedded resources to Revit addins folder
 
-lib/LookupEngine/                    # External library used by RevitHarness.Lookup
+lib/LookupEngine/                    # External library used by RevitHarness.Lookup, vendored per-TFM (net48/, net8.0-windows/, net10.0-windows/)
 ```
 
 ## Development Notes
 
-- **Target Frameworks**: Addin/Contracts/Lookup = net48 (x64); CLI = net8.0
-- **Revit References**: RevitAPI.dll and RevitAPIUI.dll from `C:\Program Files\Autodesk\Revit 2024\` (referenced with `Private=False`)
+- **Target Frameworks**: Addin/Lookup = net48 (R24) / net8.0-windows (R25, R26) / net10.0-windows (R27); Contracts = net48;net8.0-windows;net10.0-windows; CLI = net10.0; DialogWatcher = net10.0-windows
+- **Revit-year build matrix**: `src/RevitYear.props` is the single definition of `RevitYearSuffix` (R24..R27), the per-year `TargetFramework` and the per-year `obj\Rxx\` intermediate directory. `RevitHarness.Addin` and `RevitHarness.Lookup` import it from their own `Directory.Build.props`; `RevitHarness.Cli` lists the years once in its `RevitYear` items. Adding a Revit year also touches the `Configurations` lists, the per-year `Nice3point` versions in `Directory.Packages.props`, the `.sln` configuration mappings, `RevitInstaller.SupportedRevitVersions`, and, for a new TFM, `lib/LookupEngine/<tfm>/` and the Contracts `TargetFrameworks`.
+- **LookupEngine vendoring**: `lib/LookupEngine/{net48,net8.0-windows,net10.0-windows}/` holds `LookupEngine.dll` + `LookupEngine.Abstractions.dll`, extracted from the RevitLookup release for the matching Revit year (2024: 2024.3.x, 2025/2026: 2026.1.x, 2027: 2027.0.4) (not published to NuGet.org, so there's no package to reference). To refresh, copy the two DLLs from `%PROGRAMDATA%\Autodesk\Revit\Addins\{year}\RevitLookup\` into the matching TFM subfolder. Measured on Revit 2024 and 2026 with RevitLookup installed: the process loads `LookupEngine.Abstractions` from RevitLookup's folder (the harness copy is byte-identical, so `lookup` works). A RevitLookup build with a different LookupEngine version would share that one loaded copy, so keep the vendored DLLs on the same version as the RevitLookup you test against.
+- **Revit References**: `Nice3point.Revit.Api.RevitAPI`/`RevitAPIUI` NuGet reference assemblies per year (see `Directory.Packages.props`)
 - **C# Language Version**: 9.0 with nullable enabled, warnings as errors (see `Directory.Build.props`)
 - **Central Package Management**: Versions in `Directory.Packages.props`
 - **Debug**: Addin project configured to launch Revit.exe directly
 - **IpcMessages duplication**: Both Addin and CLI have their own `IpcMessages.cs` because they target different frameworks
+
+## Design Policy
+
+- Do not keep unnecessary options, fallbacks, or backward-compatibility shims. When a spec changes, delete the old mechanism instead of keeping it behind an option.
 
 ## IPC Protocol
 
@@ -162,7 +169,7 @@ Check for pending dialogs whenever a command seems stuck or times out (a modal d
 
 ## Dialog Watcher (FlaUI)
 
-`src/RevitHarness.DialogWatcher` is an on-demand exe (net8.0-windows, needs the .NET 8 Desktop Runtime, no Revit dependency) that watches Revit.exe top-level windows and Windows error reporting dialogs (WerFault) through UI Automation (WindowOpened event plus a 300 ms poll). Known dialogs are answered from the allowlist (`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`) by pressing the button with the UIA Invoke pattern (never the real mouse). Unknown dialogs get a UIA tree dump in `dialogs\dumps\`, a screenshot in `dialogs\screenshots\` and a JSONL log record plus a pending entry; nothing is pressed. `install` and `uninstall` refuse to run while Revit.exe is running (close Revit first), and `install`, `uninstall` and `dialog-watcher start|stop` take a cross-process lock and fail with a message when another one is running. `dialog-watcher start` fails with a message naming the .NET Desktop Runtime to install when it is missing.
+`src/RevitHarness.DialogWatcher` is an on-demand exe (net10.0-windows, needs the .NET 10 Desktop Runtime, no Revit dependency) that watches Revit.exe top-level windows and Windows error reporting dialogs (WerFault) through UI Automation (WindowOpened event plus a 300 ms poll). Known dialogs are answered from the allowlist (`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`) by pressing the button with the UIA Invoke pattern (never the real mouse). Unknown dialogs get a UIA tree dump in `dialogs\dumps\`, a screenshot in `dialogs\screenshots\` and a JSONL log record plus a pending entry; nothing is pressed. `install` and `uninstall` refuse to run while Revit.exe is running (close Revit first), and `install`, `uninstall` and `dialog-watcher start|stop` take a cross-process lock and fail with a message when another one is running. `dialog-watcher start` fails with a message naming the .NET Desktop Runtime to install when it is missing.
 
 ```bash
 dotnet build src/RevitHarness.DialogWatcher -c Debug -p:Platform=x64   # only needed when building from source

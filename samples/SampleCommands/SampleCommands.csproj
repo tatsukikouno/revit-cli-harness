@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Sample IExternalCommand for `revit-harness run-command`. Not part of the solution; build one TFM per Revit year:
+       dotnet build samples/SampleCommands -f net48 | net8.0-windows | net10.0-windows -->
+  <PropertyGroup>
+    <TargetFrameworks>net48;net8.0-windows;net10.0-windows</TargetFrameworks>
+    <AssemblyName>SampleCommands</AssemblyName>
+    <RootNamespace>SampleCommands</RootNamespace>
+    <Platforms>x64</Platforms>
+    <Platform>x64</Platform>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)'=='net48'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" VersionOverride="2024.3.40" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" VersionOverride="2024.3.40" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)'=='net8.0-windows'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" VersionOverride="2025.4.0" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" VersionOverride="2025.4.0" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)'=='net10.0-windows'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" VersionOverride="2027.0.0" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" VersionOverride="2027.0.0" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

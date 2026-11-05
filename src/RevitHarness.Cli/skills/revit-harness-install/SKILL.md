@@ -16,7 +16,7 @@ description: |
 revit-harness install --revit-version <year> [--skills-dir <path>]
 ```
 
-- `--revit-version`: Revit version year (e.g., 2024) - required
+- `--revit-version`: Revit version year (2024, 2025, 2026 or 2027) - required
 - `--skills-dir`: where to install the SKILLs (default `%USERPROFILE%\.claude\skills`)
 
 Install and uninstall refuse to run while Revit is running: close Revit first. Re-running install replaces everything it installed. A running dialog watcher is stopped first. A skill folder with the same name that was not installed by `revit-harness` (it has no `.revit-harness` marker file) is never overwritten or removed; install fails and names it.

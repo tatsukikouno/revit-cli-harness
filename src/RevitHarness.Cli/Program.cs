@@ -145,11 +145,11 @@ namespace RevitHarness.Cli
 Installation Commands:
   install                       Install the add-in to Revit, the dialog watcher to
                                 %LOCALAPPDATA%\RevitHarness\watcher and the SKILLs
-    --revit-version <year>      Revit version (e.g., 2024, 2025, 2026) (required)
+    --revit-version <year>      Revit version (e.g., 2024, 2025, 2026, 2027) (required)
     --skills-dir <path>         SKILL folder (optional, default: %USERPROFILE%\.claude\skills)
   uninstall                     Remove the add-in; the last uninstall also removes the watcher
                                 and SKILLs (the dialogs data folder is kept)
-    --revit-version <year>      Revit version (e.g., 2024, 2025, 2026) (required)
+    --revit-version <year>      Revit version (e.g., 2024, 2025, 2026, 2027) (required)
     --skills-dir <path>         SKILL folder used at install (optional)
   status                        Show installation status
     --revit-version <year>      Revit version (optional, shows all if omitted)

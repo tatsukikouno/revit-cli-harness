@@ -38,8 +38,22 @@ namespace RevitHarness.Cli.Installation
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 skillsDir ?? Path.Combine(profile, ".claude", "skills"),
                 AppContext.BaseDirectory,
-                new[] { Environment.GetEnvironmentVariable("DOTNET_ROOT"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet") }
-                    .Where(root => !string.IsNullOrEmpty(root)).ToArray()!);
+                DotnetRootCandidates(Environment.GetEnvironmentVariable("DOTNET_ROOT_X64"), Environment.GetEnvironmentVariable("DOTNET_ROOT"), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
+        }
+
+        /// <summary>
+        /// The one .NET root the apphost loads the runtime from: DOTNET_ROOT_X64, else DOTNET_ROOT,
+        /// else the default Program Files install. When an environment variable names a root the host
+        /// uses only that root, so the watcher pre-start check looks only there too.
+        /// </summary>
+        public static string[] DotnetRootCandidates(string? dotnetRootX64, string? dotnetRoot, string programFiles)
+        {
+            foreach (var fromEnvironment in new[] { dotnetRootX64, dotnetRoot })
+            {
+                if (!string.IsNullOrWhiteSpace(fromEnvironment))
+                    return new[] { fromEnvironment!.Trim() };
+            }
+            return new[] { Path.Combine(programFiles, "dotnet") };
         }
 
         public string AddinsRoot => Path.Combine(AppData, "Autodesk", "Revit", "Addins");

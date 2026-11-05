@@ -46,9 +46,6 @@ namespace SampleTarget.Probe
                     {
                         if (active == null) doc.Close(false);
                     }
-                case "ribbon":
-                    return JsonConvert.SerializeObject(new { panels = uiapp.GetRibbonPanels("SampleTarget")
-                        .Select(p => new { name = p.Name, items = p.GetItems().Select(i => new { name = i.Name, text = i.ItemText, children = i is SplitButton sp ? sp.GetItems().Select(c => c.Name).ToArray() : i is PulldownButton pd ? pd.GetItems().Select(c => c.Name).ToArray() : null }) }) });
                 case "open-doc":
                     if (uiapp.ActiveUIDocument != null) return JsonConvert.SerializeObject(new { title = uiapp.ActiveUIDocument.Document.Title });
                     var temp = Path.Combine(Path.GetTempPath(), "sample-target-probe.rvt");
@@ -70,7 +67,7 @@ namespace SampleTarget.Probe
                             .Select(a => new { name = a.GetName().Name, context = ContextOf(a) })
                     });
                 default:
-                    throw new ArgumentException("op must be state, clear-log, edit, ribbon, or alc.");
+                    throw new ArgumentException("op must be state, clear-log, edit, or alc.");
             }
         }
 

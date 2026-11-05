@@ -59,8 +59,7 @@ src/
 ├── RevitHarness.Contracts/          # net48;net8.0-windows;net10.0-windows - Shared interfaces (NuGet package)
 │   ├── ITestEntryPoint.cs           # Test entry point interface
 │   ├── IHarnessCommand.cs           # CLI-only command interface
-│   ├── HarnessCommandBase.cs        # Dual-use: CLI (IHarnessCommand) + Ribbon (IExternalCommand)
-│   └── TargetRibbon.cs              # Current-generation ribbon button binding
+│   └── HarnessCommandBase.cs        # Dual-use: CLI (IHarnessCommand) + Ribbon (IExternalCommand)
 │
 ├── RevitHarness.Addin/              # net48 (R24) / net8.0-windows (R25/R26) / net10.0-windows (R27) - Revit add-in (UseWPF=true)
 │   ├── App.cs                       # IExternalApplication: starts IpcServer, ExternalEvent, ribbon
@@ -119,7 +118,7 @@ Operations dispatched in `HarnessEventHandler.ProcessRequest()`:
 - `lookupElement` — Inspect element by ElementId using `ElementInspector`
 - `reload` — Replace target IExternalApplication: shutdown, dispose, shadow-copy, startup
 - `unload` — Stop/dispose target and delete persisted selection
-- `targetStatus` — Target state, generation counts, memory, ribbon slots
+- `targetStatus` — Target state, generation counts, memory
 - `shutdown` — Stop IPC server (Revit continues running)
 - `dialog-log` — Return recent dialog JSONL records (`count`); handled off the main thread
 - `reload-allowlist` — Validate the dialog allowlist; handled off the main thread
@@ -157,10 +156,7 @@ disposes the old generation, shadow-copies, creates a new generation, then runs 
 Shutdown exceptions are logged/warned and reload continues; startup exceptions fail the request
 and leave state Unloaded. `target-status` is separate from installation `status`.
 
-Target OnStartup uses `TargetRibbon.AddPushButton(panel, name, text, commandType)`, plus `AddSplitButton` / `AddPulldownButton(panel, name, text)` and `AddPushButton(splitOrPulldown, ...)` for grouped buttons. Without a harness host (ordinary Revit startup) the same calls create plain Revit ribbon items bound to the calling assembly.
-A button with the same name on the same panel (found through the panel's own button, so same-named panels on different tabs get separate slots) updates and rebinds. Revit cannot remove ribbon items:
-permanent `TargetSlot0`–`TargetSlot31` stubs in the harness delegate to the current generation
-(maximum 32 distinct push buttons, children of split buttons and pulldowns included). Target OnShutdown must unregister updaters, unsubscribe
+Target OnShutdown must unregister updaters, unsubscribe
 events, dispose ExternalEvent and timers, and stop background work. net48 old generations
 remain until Revit exits; net8/net10 ALC release is cooperative and reported in results. WPF memoizes Assembly to AssemblyName in static caches
 (`SafeSecurityHelper._assemblies`) on any pack URI or XAML lookup; disposing a net8/net10 generation evicts its assemblies from them.

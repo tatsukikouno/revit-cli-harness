@@ -76,7 +76,7 @@ No Contracts path API is added: it would be a second story for the same need.
 
 Revit loads every `.addin` it finds in the Addins folders at startup. A product build that drops its own
 manifest there makes Revit load the target itself, and the harness would then load a second copy (duplicate
-ribbon items, updaters, events). The harness `.addin` must be the only active one.
+updaters and events). The harness `.addin` must be the only active one.
 
 Chosen: build to an output directory outside the Addins folders, and where a build writes into an Addins
 folder, park the manifest with one explicit command:

@@ -4,7 +4,7 @@
     <AssemblyName>SampleTarget</AssemblyName>
     <RootNamespace>SampleTarget</RootNamespace>
     <BuildTag Condition="'$(BuildTag)' == ''">dev</BuildTag>
-    <Features Condition="'$(Features)' == ''">panel,button,updater,event</Features>
+    <Features Condition="'$(Features)' == ''">updater,event</Features>
     <Platforms>x64</Platforms>
     <Platform>x64</Platform>
   </PropertyGroup>

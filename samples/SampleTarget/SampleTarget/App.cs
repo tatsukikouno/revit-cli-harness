@@ -70,30 +70,6 @@ namespace SampleTarget
 
         public Result OnStartup(UIControlledApplication application)
         {
-            if (TargetLog.Features.Contains("panel"))
-            {
-                try { application.CreateRibbonTab("SampleTarget"); }
-                catch (Autodesk.Revit.Exceptions.ArgumentException) { }
-                var panel = application.GetRibbonPanels("SampleTarget").FirstOrDefault(p => p.Name == "Sample")
-                    ?? application.CreateRibbonPanel("SampleTarget", "Sample");
-                if (TargetLog.Features.Contains("button"))
-                    TargetRibbon.AddPushButton(panel, "Hello", $"Hello {TargetLog.Tag}", typeof(HelloCommand).FullName!);
-                if (TargetLog.Features.Contains("many"))
-                {
-                    var many = application.GetRibbonPanels("SampleTarget").FirstOrDefault(p => p.Name == "Many")
-                        ?? application.CreateRibbonPanel("SampleTarget", "Many");
-                    var command = typeof(HelloCommand).FullName!;
-                    for (var i = 0; i < 12; i++)
-                        TargetRibbon.AddPushButton(many, $"Push{i:00}", $"Push {i:00} {TargetLog.Tag}", command);
-                    var split = TargetRibbon.AddSplitButton(many, "Split1", "Split");
-                    TargetRibbon.AddPushButton(split, "SplitA", $"SplitA {TargetLog.Tag}", command);
-                    TargetRibbon.AddPushButton(split, "SplitB", $"SplitB {TargetLog.Tag}", command);
-                    var pulldown = TargetRibbon.AddPulldownButton(many, "Pull1", "Pulldown");
-                    TargetRibbon.AddPushButton(pulldown, "PullA", $"PullA {TargetLog.Tag}", command);
-                    TargetRibbon.AddPushButton(pulldown, "PullB", $"PullB {TargetLog.Tag}", command);
-                    TargetLog.Write("many " + string.Join(";", many.GetItems().Select(Describe)));
-                }
-            }
             if (TargetLog.Features.Contains("updater"))
             {
                 var updater = new SampleUpdater(application.ActiveAddInId);
@@ -110,13 +86,6 @@ namespace SampleTarget
             TargetLog.Write("startup");
             return Result.Succeeded;
         }
-
-        internal static string Describe(RibbonItem item) => item switch
-        {
-            SplitButton s => $"{s.Name}:split[{string.Join(",", s.GetItems().Select(Describe))}]",
-            PulldownButton d => $"{d.Name}:pulldown[{string.Join(",", d.GetItems().Select(Describe))}]",
-            _ => item.Name
-        };
 
         public Result OnShutdown(UIControlledApplication application)
         {
@@ -147,15 +116,5 @@ namespace SampleTarget
         public ChangePriority GetChangePriority() => ChangePriority.Annotations;
         public UpdaterId GetUpdaterId() => _id;
         public string GetUpdaterName() => "SampleTarget Level logger";
-    }
-
-    [Transaction(TransactionMode.Manual)]
-    public sealed class HelloCommand : IExternalCommand
-    {
-        public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
-        {
-            TargetLog.Write("ribbon");
-            return Result.Succeeded;
-        }
     }
 }

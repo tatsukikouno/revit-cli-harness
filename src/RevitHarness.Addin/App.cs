@@ -62,7 +62,6 @@ namespace RevitHarness.Addin
                 _targetHost = new TargetHost(new ShadowCopier(Log), Log);
                 _targetHost.Attach(application);
                 TargetHost.Instance = _targetHost;
-                TargetRibbon.Host = _targetHost;
 
                 // Start IPC server
                 _server.Start();
@@ -114,7 +113,6 @@ namespace RevitHarness.Addin
 
                 _targetHost?.StopForRevitExit();
                 TargetHost.Instance = null;
-                TargetRibbon.Host = null;
                 _targetHost = null;
 
                 _dialogHooks?.Unsubscribe();

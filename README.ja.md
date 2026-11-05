@@ -153,7 +153,7 @@ revit-harness unload [--timeout <ms>]
 リロードは旧 `OnShutdown` → 旧世代の破棄 → 対象フォルダのコピー → 新世代の作成 → 新 `OnStartup`
 の順。Shutdown 例外は警告として返して続行し、Startup 例外は失敗（`ok=false`）となり
 `Unloaded` 状態に戻る。`target-status` は現在世代、DLL パス・型、ロード時刻、ランタイム、
-ワーキングセット、作成済み世代数、生存中の旧 ALC 数（net48 は null）、リボンの割当を返す。
+ワーキングセット、作成済み世代数、生存中の旧 ALC 数（net48 は null）を返す。
 `status` は引き続きインストール状態の確認用。
 
 **ファイルと `Assembly.Location`。** リロードのたびに、対象 DLL があるフォルダ全体（サブフォルダを含む全ファイル）を
@@ -185,22 +185,9 @@ revit-harness prepare-target --addin "C:\path\Target.addin" --restore
 ID を保つ。`status` で確認できる。Revit はマニフェストを起動時に読むので、**VendorId を変えたら Revit を
 再起動する**（install は元々 Revit を閉じて行う）。ID はコミットしない。対象自身の `.addin` も編集しない。
 
-対象の `OnStartup` では Contracts のヘルパーでボタンを登録する。
-
-```csharp
-TargetRibbon.AddPushButton(panel, "Hello", "Hello", typeof(HelloCommand).FullName!);
-```
-
-同じパネル上の同名ボタンは既存ボタンを再利用し、表示文字と現在世代への割当を更新する。
-Revit はリボン項目を削除できないため、ボタンは `RevitHarness.Addin.dll` の固定スタブ
-`TargetSlot0`〜`TargetSlot31` を呼ぶ。異なるプッシュボタンは最大 32 個（スプリット／プルダウン内の子も数える）。
-`TargetRibbon.AddSplitButton` / `AddPulldownButton(panel, name, text)` も同名の既存コンテナを再利用し、子は
-`TargetRibbon.AddPushButton(container, name, text, commandType)` で追加する。ハーネス外で動かすと通常の Revit リボン項目を作る（例外は投げない）。unload 後もボタンは残るが、
-対象コードは実行できなくなる。
-
 ハーネスの `.addin` 自体が薄いローダーになる。成功した reload の DLL パスと型は
 `%LOCALAPPDATA%\RevitHarness\target.json` に保存され、次回 Revit 起動時に復元されるので
-リボンが起動時に作られる。復元失敗は Revit 起動を妨げない（復元が終わるまでリクエストは
+対象が起動時に読み込まれる。復元失敗は Revit 起動を妨げない（復元が終わるまでリクエストは
 `HARNESS_NOT_READY` になる）。`unload` は対象を停止してこのファイルを削除する。
 
 IUpdater は `application.ActiveAddInId`（ハーネスが対象を動かしている間はハーネスのID）で登録してください。他のIDだとRevitが拒否します。コマンドがホストの Newtonsoft.Json に自分の型（匿名オブジェクトなど）を渡してシリアライズすると、その型がライブラリのキャッシュに残り、net8以降の世代が解放されなくなります。
@@ -210,7 +197,7 @@ Dispose、バックグラウンド処理の停止を行う必要がある。net8
 （`previousReleased`、`released`、warnings を確認）。net48 は旧世代が Revit 終了までメモリに残り、
 WPF の pack URI はアセンブリ名で解決されるため、対象の XAML リソースは最初の世代に束縛される。
 ネイティブ DLL は非対応。
-ビルド方法と世代・補助 DLL・イベント・updater・リボンの検証例は
+ビルド方法と世代・補助 DLL・イベント・updater の検証例は
 [SampleTarget](samples/SampleTarget/README.md) を参照。
 
 ## Addin Manager UI
@@ -291,7 +278,7 @@ Named Pipe `\\.\pipe\RevitHarness2024` 上で JSON メッセージを length-pre
 | `runCommand` | `IHarnessCommand` / `IExternalCommand` 実行 |
 | `reload` | 対象 IExternalApplication の世代を置換 |
 | `unload` | 対象世代を停止・破棄 |
-| `targetStatus` | 対象の状態・メモリ・世代・リボン割当 |
+| `targetStatus` | 対象の状態・メモリ・世代 |
 | `lookupElement` | 要素インスペクション |
 | `shutdown` | IPC サーバー停止 |
 | `dialog-log` | 直近のダイアログ記録（パイプスレッドで応答。モーダル中も動作） |

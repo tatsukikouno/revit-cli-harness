@@ -2,7 +2,7 @@
 name: revit-harness-reload
 description: |
   Hot reload an IExternalApplication target add-in without restarting Revit.
-  Use for rebuilding a resident add-in with ribbon buttons, updaters, or events,
+  Use for rebuilding a resident add-in with updaters or events,
   checking its current generation, or unloading it.
   Triggers: "reload revit addin", "hot reload target", "unload target"
 ---
@@ -36,15 +36,11 @@ Reload calls old OnShutdown, disposes the old generation, shadow-copies, then ca
 OnStartup. Shutdown exceptions produce warnings and reload continues; startup exceptions
 fail the request and leave the target Unloaded. Check `warnings` and (net8+) `previousReleased`.
 Status includes generation, path/type, loadedAt, runtime, working set, generation counts,
-old live ALC count (null on net48), and ribbonSlots. `status` checks installation instead.
-
-Use `TargetRibbon.AddPushButton(panel, name, text, commandType)` in target OnStartup.
-A button with the same name on the same panel is reused: updates text, and rebinds to the current generation.
-There are at most 32 distinct push-button slots (children of split buttons and pulldowns count). `TargetRibbon.AddSplitButton`/`AddPulldownButton(panel, name, text)` reuse same-named containers; add children with `TargetRibbon.AddPushButton(container, ...)`. Outside the harness these calls create plain Revit ribbon items. The harness DLL owns the permanent command stubs.
+and old live ALC count (null on net48). `status` checks installation instead.
 
 The harness `.addin` is the thin loader. A successful reload saves path/type to
 `%LOCALAPPDATA%\RevitHarness\target.json`; Revit startup restores it (failure is non-fatal).
-Unload calls OnShutdown, disposes the generation, and deletes this file. Ribbon items remain.
+Unload calls OnShutdown, disposes the generation, and deletes this file.
 
 Target OnShutdown must unregister updaters, unsubscribe events, dispose ExternalEvent and
 timers, and stop background work. net8+ uses collectible ALCs; retained references can

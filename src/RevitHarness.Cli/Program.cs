@@ -194,7 +194,7 @@ IPC Commands:
     --timeout <ms>              Timeout in milliseconds (optional, default: 300000)
   unload                        OnShutdown the target add-in and unload its generation
     --timeout <ms>              Timeout in milliseconds (optional, default: 300000)
-  target-status                 Show the hot reloaded target add-in (generation, state, ribbon slots)
+  target-status                 Show the hot reloaded target add-in (generation, state)
     --timeout <ms>              Timeout in milliseconds (optional, default: 300000)
   shutdown                      Stop the IPC server (Revit continues running)
   dialog-log                    Show recent dialog auto-handling records (JSONL)

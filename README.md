@@ -187,8 +187,8 @@ revit-harness unload [--timeout <ms>]
 Reload runs old `OnShutdown`, disposes the old generation, copies the target's directory, and runs new
 `OnStartup`. Shutdown exceptions become warnings and reload continues. Startup exceptions
 fail the request (`ok=false`) and leave the target `Unloaded`. `target-status` reports the
-current generation, path/type, load time, runtime, working set, generation counts, old live
-ALCs (null on net48), and ribbon bindings. `status` remains the installation status command.
+current generation, path/type, load time, runtime, working set, generation counts, and old live
+ALCs (null on net48). `status` remains the installation status command.
 
 **Files and `Assembly.Location`.** Each reload copies the whole directory that holds the target DLL (all
 files, subdirectories included) to `%LOCALAPPDATA%\RevitHarness\shadow\<timestamp>\` and loads the target
@@ -222,24 +222,9 @@ installed id; `status` shows it. Revit reads manifests at startup, so **restart 
 changes** (install already needs Revit closed). Nothing about the id is committed, and the target's own
 `.addin` is never edited.
 
-In target `OnStartup`, register buttons with the Contracts helper:
-
-```csharp
-TargetRibbon.AddPushButton(panel, "Hello", "Hello", typeof(HelloCommand).FullName!);
-```
-
-A button with the same name on the same panel reuses the existing button, updates its text, and rebinds it to
-the current generation. Revit cannot remove ribbon items: buttons point to permanent
-`TargetSlot0`–`TargetSlot31` command stubs in `RevitHarness.Addin.dll`. At most 32 distinct
-push buttons are supported (children of split buttons and pulldowns count); after unload the buttons remain but cannot execute target code. The Revit home screen has no ribbon, so a click is possible only once a project is open.
-
-`TargetRibbon.AddSplitButton(panel, name, text)` and `AddPulldownButton(panel, name, text)` reuse a same-named container the same way;
-add children with `TargetRibbon.AddPushButton(container, name, text, commandType)`. When the add-in runs outside the harness,
-these calls create ordinary Revit ribbon items instead of throwing.
-
 The harness `.addin` serves as the thin loader. Each successful reload saves the target DLL
 path and type to `%LOCALAPPDATA%\RevitHarness\target.json`. Harness startup restores that
-target so its ribbon exists immediately; restoration failure is non-fatal (requests get
+target at startup; restoration failure is non-fatal (requests get
 `HARNESS_NOT_READY` until it finishes). `unload` deletes the file and stops the target.
 
 The target's `OnShutdown` must unregister updaters, unsubscribe events, dispose
@@ -252,7 +237,7 @@ target); Revit rejects any other owner. Values a command
 serializes through the host's Newtonsoft.Json with its own types (for example anonymous
 objects) stay in that library's caches and keep a net8+ generation from being released.
 See [SampleTarget](samples/SampleTarget/README.md) for build commands and a probe of
-startup/shutdown, helper DLL updates, events, updaters, and ribbon rebinding.
+startup/shutdown, helper DLL updates, events, and updaters.
 
 ## Addin Manager UI
 
@@ -332,7 +317,7 @@ JSON messages over Named Pipe `\\.\pipe\RevitHarness2024` with length-prefix fra
 | `runCommand` | Execute `IHarnessCommand` / `IExternalCommand` |
 | `reload` | Replace the target IExternalApplication generation |
 | `unload` | Stop and dispose the target generation |
-| `targetStatus` | Target state, memory, generations, ribbon slots |
+| `targetStatus` | Target state, memory, generations |
 | `lookupElement` | Element inspection |
 | `shutdown` | Stop the IPC server |
 | `dialog-log` | Recent dialog records (answered on the pipe thread, works while a modal blocks Revit) |

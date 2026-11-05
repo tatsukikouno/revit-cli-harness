@@ -219,21 +219,6 @@ namespace RevitHarness.Addin.Ipc
         public List<string> Warnings { get; set; } = new List<string>();
     }
 
-    public class RibbonSlotInfo
-    {
-        [JsonProperty("slot")]
-        public int Slot { get; set; }
-
-        [JsonProperty("panel")]
-        public string Panel { get; set; } = string.Empty;
-
-        [JsonProperty("name")]
-        public string Name { get; set; } = string.Empty;
-
-        [JsonProperty("commandType")]
-        public string CommandType { get; set; } = string.Empty;
-    }
-
     public class TargetStatusResult
     {
         [JsonProperty("state")]
@@ -262,8 +247,5 @@ namespace RevitHarness.Addin.Ipc
 
         [JsonProperty("workingSetBytes")]
         public long WorkingSetBytes { get; set; }
-
-        [JsonProperty("ribbonSlots")]
-        public List<RibbonSlotInfo> RibbonSlots { get; set; } = new List<RibbonSlotInfo>();
     }
 }

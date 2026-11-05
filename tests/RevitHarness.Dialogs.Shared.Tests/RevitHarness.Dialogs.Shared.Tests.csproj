@@ -15,7 +15,6 @@
     <Compile Include="..\..\src\RevitHarness.Addin\Ipc\ReferenceResolver.cs" Link="Addin\ReferenceResolver.cs" />
     <Compile Include="..\..\src\RevitHarness.Addin\Ipc\ShadowCopier.cs" Link="Addin\ShadowCopier.cs" />
     <Compile Include="..\..\src\RevitHarness.Cli\Diagnostics\*.cs" Link="Cli\Diagnostics\%(Filename)%(Extension)" />
-    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\SlotTable.cs" Link="Addin\SlotTable.cs" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\src\RevitHarness.Cli\Installation\*.cs" Link="Cli\%(Filename)%(Extension)" />

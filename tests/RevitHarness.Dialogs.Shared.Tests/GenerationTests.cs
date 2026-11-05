@@ -199,6 +199,59 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.DoesNotContain(reader.AssemblyReferences, r => reader.GetString(reader.GetAssemblyReference(r).Name) == "FxHelper");
         }
 
+        [Fact]
+        public void RenameRewritesInternalsVisibleToOfRenamedSiblings()
+        {
+            var dir = Path.Combine(_root, "ivt");
+            Directory.CreateDirectory(dir);
+            Compile(
+                "FxFriend",
+                "[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(\"FxHelper\")] [assembly: System.Runtime.CompilerServices.InternalsVisibleTo(\"Other\")] namespace Fx { public static class F { } }",
+                dir,
+                Path.Combine(typeof(InternalsVisibleToAttribute).Assembly.Location));
+            var names = new Dictionary<string, string> { ["FxHelper"] = "FxHelper_g9", ["Other"] = "Other_g9" };
+
+            var bytes = AssemblyRenamer.Rename(File.ReadAllBytes(Path.Combine(dir, "FxFriend.dll")), null, names).Dll;
+
+            using var module = Mono.Cecil.ModuleDefinition.ReadModule(new MemoryStream(bytes));
+            var friends = module.Assembly.CustomAttributes.Where(c => c.AttributeType.Name == "InternalsVisibleToAttribute").Select(c => (string)c.ConstructorArguments[0].Value).ToArray();
+            Assert.Equal(new[] { "FxHelper_g9", "Other_g9" }, friends);
+        }
+
+        [Fact]
+        public void MissingWpfInternalsAreReportedOnceAndYieldNoCache()
+        {
+            var logged = new List<string>();
+            var owners = new[] { ("System.Private.CoreLib", "System.Object") };
+
+            var first = Generation.WpfAssemblyNameCache.Discover(owners, logged.Add);
+            var second = Generation.WpfAssemblyNameCache.Discover(owners, logged.Add);
+
+            Assert.Empty(first);
+            Assert.Empty(second);
+            var line = Assert.Single(logged);
+            Assert.Contains("WPF internals changed", line);
+            Assert.Contains("System.Object", line);
+        }
+
+        [Fact]
+        public void WpfCacheIsDiscoveredFromStaticDictionaryAndSyncObject()
+        {
+            var asm = typeof(FakeWpfHelper).Assembly.GetName().Name!;
+
+            var caches = Generation.WpfAssemblyNameCache.Discover(new[] { (asm, typeof(FakeWpfHelper).FullName!) }, null);
+
+            var cache = Assert.Single(caches);
+            Assert.Same(FakeWpfHelper._assemblies, cache.Entries);
+            Assert.Same(FakeWpfHelper.syncObject, cache.Gate);
+        }
+
+        private static class FakeWpfHelper
+        {
+            internal static readonly Dictionary<object, AssemblyName> _assemblies = new Dictionary<object, AssemblyName>();
+            internal static readonly object syncObject = new object();
+        }
+
         private string WriteTemp(byte[] bytes, string name)
         {
             var path = Path.Combine(_root, name);

@@ -170,6 +170,7 @@ namespace RevitHarness.Addin.Ipc
             result.Generation = number;
             File.WriteAllText(_stateFile, JsonConvert.SerializeObject(new SavedTarget { AssemblyPath = fullPath, Type = typeName }));
             _log($"Target generation {number} started: {typeName}");
+            _shadow.Cleanup();
             return result;
         }
 
@@ -183,6 +184,7 @@ namespace RevitHarness.Addin.Ipc
             var lifetime = Stop(_uic!, result.Warnings);
             result.Released = Released(lifetime);
             result.Unloaded = true;
+            _shadow.Cleanup();
             return result;
         }
 
@@ -240,25 +242,24 @@ namespace RevitHarness.Addin.Ipc
 
         public PushButton AddPushButton(RibbonPanel panel, string name, string text, string commandType)
         {
-            var index = Array.FindIndex(_slots, s => s != null && s.Panel == panel.Name && s.Name == name);
-            if (index >= 0)
+            var slotClass = typeof(TargetSlot0).Namespace + ".TargetSlot";
+            // The button already on this very panel identifies its slot, so same-named panels on different tabs never share one.
+            var existing = panel.GetItems().OfType<PushButton>().FirstOrDefault(b => b.Name == name);
+            if (existing != null)
             {
-                _slots[index]!.CommandType = commandType;
-                var existing = panel.GetItems().OfType<PushButton>().FirstOrDefault(b => b.Name == name);
-                if (existing != null)
-                {
-                    existing.ItemText = text;
-                    return existing;
-                }
-            }
-            else
-            {
-                index = Array.FindIndex(_slots, s => s == null);
-                if (index < 0)
-                    throw new InvalidOperationException($"At most {SlotCount} hot reloaded ribbon buttons are supported.");
+                if (!existing.ClassName.StartsWith(slotClass, StringComparison.Ordinal)
+                    || !int.TryParse(existing.ClassName.Substring(slotClass.Length), out var existingIndex)
+                    || _slots[existingIndex] == null)
+                    throw new InvalidOperationException($"Ribbon button '{name}' on panel '{panel.Name}' was not created by the harness.");
+                _slots[existingIndex]!.CommandType = commandType;
+                existing.ItemText = text;
+                return existing;
             }
 
-            var data = new PushButtonData(name, text, typeof(TargetHost).Assembly.Location, typeof(TargetSlot0).Namespace + ".TargetSlot" + index);
+            var index = Array.FindIndex(_slots, s => s == null);
+            if (index < 0)
+                throw new InvalidOperationException($"At most {SlotCount} hot reloaded ribbon buttons are supported.");
+            var data = new PushButtonData(name, text, typeof(TargetHost).Assembly.Location, slotClass + index);
             var button = (PushButton)panel.AddItem(data);
             _slots[index] = new Slot { Panel = panel.Name, Name = name, CommandType = commandType };
             return button;

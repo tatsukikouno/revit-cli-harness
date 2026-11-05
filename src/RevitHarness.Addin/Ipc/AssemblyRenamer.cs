@@ -27,6 +27,7 @@ namespace RevitHarness.Addin.Ipc
                 foreach (var reference in module.AssemblyReferences)
                     if (newNames.TryGetValue(reference.Name, out var renamed))
                         reference.Name = renamed;
+                RenameInternalsVisibleTo(module.Assembly, newNames);
 
                 using var outDll = new MemoryStream();
                 using var outPdb = new MemoryStream();
@@ -37,6 +38,21 @@ namespace RevitHarness.Addin.Ipc
                     SymbolWriterProvider = withSymbols ? new PortablePdbWriterProvider() : null
                 });
                 return (outDll.ToArray(), withSymbols ? outPdb.ToArray() : null);
+            }
+        }
+
+        // A renamed helper must stay a friend of its renamed siblings; the value is "Name" or "Name, PublicKey=...".
+        private static void RenameInternalsVisibleTo(AssemblyDefinition assembly, IReadOnlyDictionary<string, string> newNames)
+        {
+            foreach (var attribute in assembly.CustomAttributes)
+            {
+                if (attribute.AttributeType.FullName != "System.Runtime.CompilerServices.InternalsVisibleToAttribute") continue;
+                var argument = attribute.ConstructorArguments[0];
+                if (!(argument.Value is string friend)) continue;
+                var comma = friend.IndexOf(',');
+                var name = (comma < 0 ? friend : friend.Substring(0, comma)).Trim();
+                if (newNames.TryGetValue(name, out var renamed))
+                    attribute.ConstructorArguments[0] = new CustomAttributeArgument(argument.Type, renamed + (comma < 0 ? "" : friend.Substring(comma)));
             }
         }
 

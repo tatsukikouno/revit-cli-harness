@@ -77,8 +77,11 @@ namespace RevitHarness.Addin.Ipc
             WpfAssemblyNameCache.Log = log;
             Generation generation = new CollectibleGeneration(shadowAssemblyPath, owned, hosts);
 #endif
+#if !NET48
+            // A collectible generation reads its shadow files lazily; a byte-loaded one has read them all by now.
             lock (RegistryLock)
                 Shadows.Add((Path.GetDirectoryName(shadowAssemblyPath)!, generation.Lifetime));
+#endif
             log($"Loaded generation: {generation.Assembly.FullName}");
             return generation;
         }
@@ -217,18 +220,17 @@ namespace RevitHarness.Addin.Ipc
             };
             private const BindingFlags AnyStatic = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
 
-            internal static Func<IEnumerable<Cache>> Source { get; set; } = FindWpfCaches;
+            internal static Func<IEnumerable<Cache>> Source { get; set; } = () => Discover(Owners, Log);
             internal static Action<string>? Log { get; set; }
-            private static bool _warned;
+            private static readonly HashSet<string> Reported = new HashSet<string>();
 
             internal static void Evict()
             {
                 foreach (var cache in Source())
                 {
-                    object[] stale;
                     lock (cache.Gate)
                     {
-                        stale = cache.Entries.Keys.Cast<object>()
+                        var stale = cache.Entries.Keys.Cast<object>()
                             .Where(k => k is Assembly a && AssemblyLoadContext.GetLoadContext(a) is GenerationContext { Disposed: true })
                             .ToArray();
                         foreach (var key in stale) cache.Entries.Remove(key);
@@ -236,10 +238,13 @@ namespace RevitHarness.Addin.Ipc
                 }
             }
 
-            private static IEnumerable<Cache> FindWpfCaches()
+            // A WPF owner assembly that is loaded but lacks the expected type or fields means WPF changed its internals:
+            // eviction would silently do nothing, so say so once per owner.
+            internal static IReadOnlyList<Cache> Discover(IEnumerable<(string Assembly, string Type)> owners, Action<string>? log)
             {
+                var caches = new List<Cache>();
                 var loaded = AppDomain.CurrentDomain.GetAssemblies();
-                foreach (var (assemblyName, typeName) in Owners)
+                foreach (var (assemblyName, typeName) in owners)
                 {
                     var assembly = loaded.FirstOrDefault(a => a.GetName().Name == assemblyName);
                     if (assembly == null) continue;
@@ -248,13 +253,13 @@ namespace RevitHarness.Addin.Ipc
                     var gate = type?.GetField("syncObject", AnyStatic)?.GetValue(null);
                     if (entries == null || gate == null)
                     {
-                        if (_warned) continue;
-                        _warned = true;
-                        Log?.Invoke($"WPF assembly-name cache not found in {typeName}; a disposed generation may stay pinned.");
+                        if (Reported.Add(typeName))
+                            log?.Invoke($"WPF internals changed: {typeName} in {assemblyName} has no static _assemblies/syncObject. Disposed generations are no longer evicted from WPF's assembly-name cache and may stay loaded.");
                         continue;
                     }
-                    yield return new Cache(entries, gate);
+                    caches.Add(new Cache(entries, gate));
                 }
+                return caches;
             }
         }
 

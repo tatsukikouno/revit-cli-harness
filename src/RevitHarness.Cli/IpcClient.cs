@@ -50,16 +50,19 @@ namespace RevitHarness.Cli
                 throw new InvalidOperationException("Not connected to Revit harness");
 
             using var cts = new CancellationTokenSource(timeoutMs);
+            var notAnswered = new TimeoutException(
+                $"Revit did not answer '{request.Op}' in time. If a modal dialog blocks Revit's main thread, run 'revit-harness dialog-pending' and 'revit-harness dialog-decide'. A request Revit has not started yet is dropped when the client gives up; one that already started still finishes, so check its effect before running it again.");
 
             try
             {
                 await WriteMessageAsync(_pipe, request, cts.Token);
-                return await ReadMessageAsync(_pipe, cts.Token);
+                var response = await ReadMessageAsync(_pipe, cts.Token);
+                if (response.Error?.Code == "TIMEOUT") throw notAnswered;
+                return response;
             }
             catch (OperationCanceledException)
             {
-                throw new TimeoutException(
-                    $"Revit did not answer '{request.Op}' within {timeoutMs}ms. If a modal dialog blocks Revit's main thread, run 'revit-harness dialog-pending' and 'revit-harness dialog-decide'; the request is dropped when the client gives up and does not run later.");
+                throw notAnswered;
             }
         }
 

@@ -163,7 +163,7 @@ Exe options: `--once`, `--dry-run`, `--pid <revit pid>`. The allowlist, pending 
 | 1 | Failure (`ok=false` or `passed=false`) |
 | 2 | Connection / infrastructure error (Revit not running, or no answer within `--timeout`) |
 
-When Revit does not answer within `--timeout` (usually a modal dialog blocks its main thread), the CLI exits with 2 and the request is dropped: it does not run later when Revit becomes free. Check `dialog-pending`, resolve the dialog, then run the command again.
+When Revit does not answer within `--timeout` (usually a modal dialog blocks its main thread), the CLI exits with 2. A request Revit has not started yet is dropped and never runs later; one that already started (for example a command that raised the dialog itself) still finishes, so check its effect before running it again. Check `dialog-pending` and resolve the dialog first.
 
 ## Target add-in hot reload
 

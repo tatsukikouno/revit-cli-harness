@@ -113,7 +113,7 @@ revit-harness dialog-watcher start|stop|status
 
 コマンドが固まる・タイムアウトするときは `dialog-pending` を確認し、`bodySummary` とスクリーンショットを読んでから一覧のボタンを押します。`dialog-decide` はウォッチャーが UI Automation でボタンを押して完了するのを待ちます（終了コード 0 解決、1 却下/stale/失敗、2 ウォッチャーが拾わなかった）。`--save-rule` は戻せるボタン（OK、Cancel、Close）に限り allowlist ルールも保存します。
 
-ウォッチャー（`RevitHarness.DialogWatcher.exe`、.NET 10 Desktop Runtime が必要）は常駐せず、自動起動もしません。Revit 起動前に `dialog-watcher start`、終了後に `stop` します。Revit.exe と WerFault のトップレベル窓を UI Automation で監視し、既知のダイアログは allowlist のボタンを Invoke で押します（実マウスは使いません）。押してもダイアログが閉じなければ次の走査で再度押し、3 回押しても閉じなければ pending にします。詳細は英語版 README を参照してください。
+ウォッチャー（`RevitHarness.DialogWatcher.exe`、.NET 10 Desktop Runtime が必要）は常駐せず、自動起動もしません。Revit 起動前に `dialog-watcher start`、終了後に `stop` します。Revit.exe と WerFault のトップレベル窓を UI Automation で監視し、既知のダイアログは allowlist のボタンを Invoke で押します（実マウスは使いません）。押してもダイアログが閉じなければ、戻せるボタンに限り次の走査で再度押します（1 つの窓につき最大 3 回）。それでも閉じなければ pending にします。詳細は英語版 README を参照してください。
 
 ### その他
 
@@ -130,7 +130,7 @@ revit-harness help      # ヘルプ表示（--help、-h も可）
 | 1 | 失敗（`ok=false` または `passed=false`） |
 | 2 | 接続/インフラエラー（Revit 未起動、または `--timeout` 内に応答なし） |
 
-`--timeout` 内に Revit が応答しない場合（多くはモーダルダイアログが Revit のメインスレッドを塞いでいる）、CLI は終了コード 2 で終わり、そのリクエストは破棄されます。Revit が空いたあとに遅れて実行されることはありません。`dialog-pending` を確認してダイアログを解決し、コマンドをもう一度実行してください。
+`--timeout` 内に Revit が応答しない場合（多くはモーダルダイアログが Revit のメインスレッドを塞いでいる）、CLI は終了コード 2 で終わります。Revit がまだ開始していないリクエストは破棄され、遅れて実行されることはありません。すでに開始したもの（コマンド自身がダイアログを出した場合など）は最後まで実行されるので、再実行の前に結果を確認してください。まず `dialog-pending` を確認してダイアログを解決します。
 
 ## 対象アドインのホットリロード
 

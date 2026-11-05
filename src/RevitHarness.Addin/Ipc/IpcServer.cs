@@ -15,10 +15,19 @@ namespace RevitHarness.Addin.Ipc
     /// <summary>
     /// Named Pipe IPC server for receiving commands from CLI.
     /// </summary>
+    /// <summary>Set once the client of a queued request has given up.</summary>
+    public sealed class Abandonment
+    {
+        private int _set;
+        public bool IsSet => Volatile.Read(ref _set) != 0;
+        public void Set() => Volatile.Write(ref _set, 1);
+    }
+
     public sealed class QueuedRequest
     {
-        public QueuedRequest(IpcRequest request, Action<IpcResponse> callback, CancellationToken abandoned)
+        public QueuedRequest(IpcRequest request, Action<IpcResponse> callback, Abandonment abandoned, DateTime expiresAtUtc)
         {
+            ExpiresAtUtc = expiresAtUtc;
             Request = request;
             Callback = callback;
             Abandoned = abandoned;
@@ -26,7 +35,8 @@ namespace RevitHarness.Addin.Ipc
 
         public IpcRequest Request { get; }
         public Action<IpcResponse> Callback { get; }
-        public CancellationToken Abandoned { get; }
+        public Abandonment Abandoned { get; }
+        public DateTime ExpiresAtUtc { get; }
     }
 
     public class IpcServer : IDisposable
@@ -94,7 +104,7 @@ namespace RevitHarness.Addin.Ipc
         {
             while (_requestQueue.TryDequeue(out var candidate))
             {
-                if (candidate.Abandoned.IsCancellationRequested)
+                if (candidate.Abandoned.IsSet || DateTime.UtcNow >= candidate.ExpiresAtUtc)
                 {
                     _log($"Dropped stale request: op={candidate.Request.Op}, id={candidate.Request.Id}");
                     continue;
@@ -190,35 +200,46 @@ namespace RevitHarness.Addin.Ipc
                     }
 
                     var tcs = new TaskCompletionSource<IpcResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    var timeoutMs = request.GetPayloadValue<int?>("timeoutMs") ?? 300000; // 5 minutes default
-                    using var abandoned = new CancellationTokenSource();
-                    _requestQueue.Enqueue(new QueuedRequest(request, response => tcs.TrySetResult(response), abandoned.Token));
-
-                    // A pipe read cannot be cancelled on .NET Framework, so the read that watches for a closed pipe
-                    // is the first read of the next message and is carried over to the next loop iteration.
-                    var disconnect = pipe.ReadAsync(lengthBuffer, 0, 4, ct);
-                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    var timeout = Task.Delay(timeoutMs, timeoutCts.Token);
-                    var first = await Task.WhenAny(tcs.Task, disconnect, timeout);
-                    timeoutCts.Cancel();
-
-                    if (first != tcs.Task)
+                    var timeoutMs = Math.Max(1, request.GetPayloadValue<int?>("timeoutMs") ?? 300000); // 5 minutes default
+                    var abandoned = new Abandonment();
+                    var answered = false;
+                    try
                     {
-                        abandoned.Cancel();
-                        if (first == timeout)
-                        {
-                            carriedRead = disconnect;
-                            await WriteMessageAsync(pipe, IpcResponse.Failure(request.Id, ErrorCodes.Timeout, "Request timed out", timeoutMs), ct);
-                            continue;
-                        }
-                        _log($"Client gave up on request: op={request.Op}, id={request.Id}");
-                        break;
-                    }
+                        _requestQueue.Enqueue(new QueuedRequest(request, response => tcs.TrySetResult(response), abandoned, DateTime.UtcNow.AddMilliseconds(timeoutMs)));
 
-                    carriedRead = disconnect;
-                    var response = tcs.Task.Result;
-                    _log($"Sending response: ok={response.Ok}, id={response.Id}");
-                    await WriteMessageAsync(pipe, response, ct);
+                        // The protocol is one request at a time per connection: anything the client sends before the answer ends the wait.
+                        // A pipe read cannot be cancelled on .NET Framework, so the read that watches for a closed pipe
+                        // is the first read of the next message and is carried over to the next loop iteration.
+                        var watch = pipe.ReadAsync(lengthBuffer, 0, 4, ct);
+                        carriedRead = watch;
+                        _ = watch.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+                        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        var timeout = Task.Delay(timeoutMs, timeoutCts.Token);
+                        var first = await Task.WhenAny(tcs.Task, watch, timeout);
+                        timeoutCts.Cancel();
+
+                        if (first == tcs.Task)
+                        {
+                            var response = tcs.Task.Result;
+                            _log($"Sending response: ok={response.Ok}, id={response.Id}");
+                            await WriteMessageAsync(pipe, response, ct);
+                            answered = true;
+                        }
+                        else if (first == timeout)
+                        {
+                            await WriteMessageAsync(pipe, IpcResponse.Failure(request.Id, ErrorCodes.Timeout, "Request timed out", timeoutMs), ct);
+                        }
+                        else
+                        {
+                            _log($"Client gave up on request: op={request.Op}, id={request.Id}");
+                            carriedRead = null;
+                            break;
+                        }
+                    }
+                    finally
+                    {
+                        if (!answered) abandoned.Set();
+                    }
                 }
             }
             catch (IOException ex)

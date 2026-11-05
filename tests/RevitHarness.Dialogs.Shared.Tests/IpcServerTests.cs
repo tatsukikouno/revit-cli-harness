@@ -149,5 +149,38 @@ namespace RevitHarness.Dialogs.Shared.Tests
             two.Callback(IpcResponse.Success(two.Request.Id, new { }, 0));
             Assert.Equal("second", (await Receive(client).WaitAsync(TimeSpan.FromSeconds(5))).Id);
         }
+
+        [Fact]
+        public async Task NegativeTimeoutDoesNotLeaveALiveRequestBehind()
+        {
+            var pipe = "RevitHarnessTest" + Guid.NewGuid().ToString("N");
+            using var server = new IpcServer(_ => { }, pipe);
+            server.Start();
+
+            using var client = await Connect(pipe);
+            await Send(client, "negative", timeoutMs: -5);
+            var response = await Receive(client).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(response.Ok);
+            Assert.False(server.TryDequeueRequest(out _));
+        }
+
+        [Fact]
+        public async Task RequestPastItsDeadlineIsNotDequeuedEvenBeforeTheServerNoticed()
+        {
+            var pipe = "RevitHarnessTest" + Guid.NewGuid().ToString("N");
+            using var server = new IpcServer(_ => { }, pipe);
+            server.Start();
+
+            using var client = await Connect(pipe);
+            await Send(client, "short", timeoutMs: 100);
+            await Task.Delay(1);
+            Assert.False(await WaitUntilDequeueable(server, 100, 0));
+        }
+
+        private static async Task<bool> WaitUntilDequeueable(IpcServer server, int deadlineMs, int graceMs)
+        {
+            await Task.Delay(deadlineMs + graceMs + 50);
+            return server.TryDequeueRequest(out _);
+        }
     }
 }

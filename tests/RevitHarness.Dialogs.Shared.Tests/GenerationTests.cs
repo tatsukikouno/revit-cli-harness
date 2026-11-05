@@ -314,6 +314,36 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
+        public void ResolverIgnoresAPrivateCopyLoadedFromElsewhereAndKeepsTheRevitFile()
+        {
+            var (target, revitDir, lib) = BuildRevitLikeTarget();
+            var privateCopy = Assembly.LoadFile(Path.Combine(Path.GetDirectoryName(target)!, lib + ".dll"));
+
+            var plan = ReferenceResolver.Plan(target, Array.Empty<Assembly>(), revitDir, new[] { privateCopy }, _ => false, _ => { });
+
+            Assert.DoesNotContain(lib, plan.Hosts.Keys);
+            Assert.Equal(Path.Combine(revitDir, lib + ".dll"), plan.RevitFiles[lib]);
+        }
+
+        [Fact]
+        public void ResolverLetsTheTargetOwnACopyNewerThanTheOneRevitShips()
+        {
+            var lib = "FxSkew" + Guid.NewGuid().ToString("N");
+            var revitDir = Path.Combine(_root, "skew-revit-" + _built++);
+            var dir = Path.Combine(_root, "skew-" + _built++);
+            Directory.CreateDirectory(revitDir);
+            Directory.CreateDirectory(dir);
+            Compile(lib, "[assembly: System.Reflection.AssemblyVersion(\"1.0.0.0\")] namespace Fx { public class T { } }", revitDir);
+            Compile(lib, "[assembly: System.Reflection.AssemblyVersion(\"2.0.0.0\")] namespace Fx { public class T { } }", dir);
+            Compile("FxSkewMain", "namespace Fx { public static class Probe { } }", dir);
+
+            var plan = ReferenceResolver.Plan(Path.Combine(dir, "FxSkewMain.dll"), Array.Empty<Assembly>(), revitDir, Array.Empty<Assembly>(), _ => false, _ => { });
+
+            Assert.Contains(lib, plan.Owned.Keys);
+            Assert.DoesNotContain(lib, plan.RevitFiles.Keys);
+        }
+
+        [Fact]
         public void ResolverSharesAHostAssemblyThatIsNotBesideTheTarget()
         {
             var (target, _, lib) = BuildRevitLikeTarget();
@@ -370,6 +400,34 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.Equal("{\"a\":1}", (string)read.Invoke(null, new object[] { "settings.json" })!);
             Assert.Equal("x,y", (string)read.Invoke(null, new object[] { Path.Combine("data", "table.csv") })!);
             Assert.NotEqual(Path.GetDirectoryName(shadowed), dir);
+        }
+
+        [Fact]
+        public void SweepRemovesOnlyTheShadowRootsOfExitedProcesses()
+        {
+            var all = Path.Combine(_root, "all-shadows");
+            foreach (var name in new[] { "111", "222", "legacy_20260101" })
+            {
+                Directory.CreateDirectory(Path.Combine(all, name));
+                File.WriteAllText(Path.Combine(all, name, "x.txt"), "x");
+            }
+
+            ShadowCopier.SweepDeadProcesses(all, pid => pid == 111, _ => { });
+
+            Assert.True(Directory.Exists(Path.Combine(all, "111")));
+            Assert.False(Directory.Exists(Path.Combine(all, "222")));
+            Assert.True(Directory.Exists(Path.Combine(all, "legacy_20260101")));
+        }
+
+        [Fact]
+        public void ShadowCopyRefusesATargetDirectoryThatContainsTheShadowFolder()
+        {
+            var dir = Path.Combine(_root, "self-" + _built++);
+            Directory.CreateDirectory(dir);
+            Compile("FxSelf", "namespace Fx { public static class Probe { } }", dir);
+            var copier = new ShadowCopier(_ => { }, Path.Combine(dir, "shadow"));
+
+            Assert.Throws<InvalidOperationException>(() => copier.CopyToShadow(Path.Combine(dir, "FxSelf.dll")));
         }
 
         [Fact]

@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
@@ -18,12 +19,37 @@ namespace RevitHarness.Addin.Ipc
         private readonly string _shadowRoot;
         private readonly Action<string> _log;
 
+        // Every Revit process owns <shadow>\<pid>, so one process's cleanup never touches another's live copy.
         // The root is a parameter so tests do not write into the real shadow folder.
         public ShadowCopier(Action<string> log, string? shadowRoot = null)
         {
             _log = log;
-            _shadowRoot = shadowRoot ?? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RevitHarness", "shadow");
+            if (shadowRoot != null)
+            {
+                _shadowRoot = shadowRoot;
+                return;
+            }
+            var all = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RevitHarness", "shadow");
+            _shadowRoot = Path.Combine(all, Process.GetCurrentProcess().Id.ToString());
+            SweepDeadProcesses(all, IsAlive, log);
+        }
+
+        private static bool IsAlive(int pid)
+        {
+            try { Process.GetProcessById(pid); return true; }
+            catch (ArgumentException) { return false; }
+        }
+
+        /// <summary>Deletes the shadow roots of processes that no longer run. Other names are left alone.</summary>
+        internal static void SweepDeadProcesses(string allRoots, Func<int, bool> isAlive, Action<string> log)
+        {
+            if (!Directory.Exists(allRoots)) return;
+            foreach (var directory in Directory.GetDirectories(allRoots))
+            {
+                if (!int.TryParse(Path.GetFileName(directory), out var pid) || isAlive(pid)) continue;
+                try { Directory.Delete(directory, recursive: true); }
+                catch (Exception ex) { log($"Failed to delete the shadow root of exited process {pid}: {ex.Message}"); }
+            }
         }
 
         /// <summary>
@@ -41,6 +67,8 @@ namespace RevitHarness.Addin.Ipc
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(assemblyPath))!;
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N");
             var shadowDir = Path.Combine(_shadowRoot, timestamp);
+            if (Path.GetFullPath(shadowDir).StartsWith(sourceDir.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"The target directory {sourceDir} contains the shadow folder {_shadowRoot}; build the target elsewhere.");
             _log($"Shadow copy directory: {shadowDir}");
             var count = CopyTree(sourceDir, shadowDir);
             _log($"Copied {count} files from {sourceDir}");
@@ -60,7 +88,11 @@ namespace RevitHarness.Addin.Ipc
                 count++;
             }
             foreach (var directory in Directory.GetDirectories(source))
+            {
+                // A junction or symlink can point back up the tree.
+                if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) continue;
                 count += CopyTree(directory, Path.Combine(destination, Path.GetFileName(directory)));
+            }
             return count;
         }
 

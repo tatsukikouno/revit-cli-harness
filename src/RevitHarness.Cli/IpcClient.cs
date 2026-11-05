@@ -35,7 +35,7 @@ namespace RevitHarness.Cli
             {
                 await _pipe.ConnectAsync(timeoutMs, cts.Token);
             }
-            catch (Exception ex) when (ex is OperationCanceledException || ex is TimeoutException)
+            catch (Exception ex) when (ex is OperationCanceledException || ex is TimeoutException || ex is IOException || ex is UnauthorizedAccessException)
             {
                 throw new HarnessFailureException(FailureKind.ConnectionFailed,
                     $"No RevitHarness pipe within {timeoutMs}ms. Revit is not running, or the harness add-in is not installed or failed to load.", ex);
@@ -66,6 +66,10 @@ namespace RevitHarness.Cli
             catch (OperationCanceledException)
             {
                 throw notAnswered;
+            }
+            catch (Exception ex) when (ex is IOException || ex is InvalidDataException)
+            {
+                throw new HarnessFailureException(FailureKind.ConnectionFailed, $"The connection to RevitHarness broke: {ex.Message}", ex);
             }
         }
 

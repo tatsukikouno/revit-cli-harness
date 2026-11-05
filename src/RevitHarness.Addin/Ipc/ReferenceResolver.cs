@@ -23,7 +23,7 @@ namespace RevitHarness.Addin.Ipc
     {
         /// <summary>
         /// Classifies every managed DLL beside the entry assembly. A file with the same name in the Revit install
-        /// directory is Revit's and never loaded from the target (a normal .addin load behaves the same way).
+        /// directory is Revit's and never loaded from the target, unless the target ships a newer version of it.
         /// </summary>
         public static ReferencePlan Plan(
             string entryPath,
@@ -55,9 +55,10 @@ namespace RevitHarness.Addin.Ipc
                 if (plan.Hosts.ContainsKey(name)) continue;
 
                 var revitFile = revitDirectory == null ? null : Path.Combine(revitDirectory, name + ".dll");
-                if (revitFile != null && File.Exists(revitFile))
+                if (revitFile != null && File.Exists(revitFile) && RevitCopyIsEnough(revitFile, shadowName))
                 {
-                    var running = loaded.FirstOrDefault(a => SameName(a, name));
+                    // Only the copy that was loaded from the Revit directory is Revit's; another add-in's private copy is not.
+                    var running = loaded.FirstOrDefault(a => SameName(a, name) && SameFile(a, revitFile));
                     if (running != null) plan.Hosts[name] = running;
                     else plan.RevitFiles[name] = revitFile;
                     continue;
@@ -71,6 +72,19 @@ namespace RevitHarness.Addin.Ipc
                 else plan.Owned[name] = path;
             }
             return plan;
+        }
+
+        // Revit's copy wins unless the target ships a newer one, which then belongs to the target like any other helper.
+        private static bool RevitCopyIsEnough(string revitFile, AssemblyName target)
+        {
+            try { return AssemblyName.GetAssemblyName(revitFile).Version >= target.Version; }
+            catch (BadImageFormatException) { return false; }
+        }
+
+        private static bool SameFile(Assembly assembly, string path)
+        {
+            try { return !assembly.IsDynamic && string.Equals(assembly.Location, path, StringComparison.OrdinalIgnoreCase); }
+            catch (NotSupportedException) { return false; }
         }
 
         private static bool SameName(Assembly assembly, string name) =>

@@ -28,6 +28,8 @@ namespace RevitHarness.Cli.Installation
         {
             if (!addinPath.EndsWith(".addin", System.StringComparison.OrdinalIgnoreCase))
                 return new ParkResult(false, $"{addinPath} is not an .addin file.");
+            if (string.Equals(Path.GetFileName(addinPath), "RevitHarness.addin", System.StringComparison.OrdinalIgnoreCase))
+                return new ParkResult(false, "RevitHarness.addin is the harness loader itself; parking it would disable the harness.");
             var parked = addinPath + ParkedSuffix;
 
             if (!File.Exists(addinPath))

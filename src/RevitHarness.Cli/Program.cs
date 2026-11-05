@@ -111,8 +111,7 @@ namespace RevitHarness.Cli
             }
             catch (Exception ex)
             {
-                var failure = HarnessFailure.FromException(ex);
-                if (failure != null)
+                if (ex is HarnessFailureException failure)
                 {
                     var report = HarnessFailure.Describe(failure, OpenPendingDialogIds());
                     return ReportFailure(report.ExitCode, report.Token, report.Message);
@@ -123,7 +122,16 @@ namespace RevitHarness.Cli
 
         private static IReadOnlyCollection<string> OpenPendingDialogIds()
         {
-            try { return new RevitHarness.Dialogs.PendingStore().List(openOnly: true).Select(p => p.Id).ToArray(); }
+            try
+            {
+                return HarnessFailure.LiveDialogIds(
+                    new RevitHarness.Dialogs.PendingStore().List(openOnly: true).Select(p => (p.Id, p.Pid)),
+                    pid =>
+                    {
+                        try { System.Diagnostics.Process.GetProcessById(pid); return true; }
+                        catch (ArgumentException) { return false; }
+                    });
+            }
             catch (Exception) { return Array.Empty<string>(); }
         }
 

@@ -2,7 +2,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 
 namespace RevitHarness.Cli
@@ -73,13 +72,11 @@ namespace RevitHarness.Cli
             }
         }
 
-        /// <summary>A pipe that breaks mid-request means Revit went away; anything else is the CLI's own failure.</summary>
-        public static HarnessFailureException? FromException(Exception ex)
-        {
-            if (ex is HarnessFailureException known) return known;
-            if (ex is IOException || ex is InvalidDataException)
-                return new HarnessFailureException(FailureKind.ConnectionFailed, $"The connection to RevitHarness broke: {ex.Message}", ex);
-            return null;
-        }
+        /// <summary>
+        /// Pending entries that can block the connected Revit: an entry whose process has exited (a crash, or a dialog
+        /// closed while no watcher ran) is stale and never explains a timeout.
+        /// </summary>
+        public static IReadOnlyCollection<string> LiveDialogIds(IEnumerable<(string Id, int? Pid)> open, Func<int, bool> isAlive) =>
+            open.Where(d => d.Pid == null || isAlive(d.Pid.Value)).Select(d => d.Id).ToArray();
     }
 }

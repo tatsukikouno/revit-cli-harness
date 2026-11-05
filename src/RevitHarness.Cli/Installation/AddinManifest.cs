@@ -37,7 +37,10 @@ namespace RevitHarness.Cli.Installation
                     ?? throw new InvalidOperationException("The packaged RevitHarness.addin has no VendorId element.");
                 element.Value = vendorId;
             }
-            document.Save(destination);
+            // A torn write would make the next reinstall read no VendorId and fall back to the packaged one.
+            var temporary = destination + ".tmp";
+            document.Save(temporary);
+            File.Move(temporary, destination, overwrite: true);
         }
     }
 }

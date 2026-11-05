@@ -85,7 +85,9 @@ namespace RevitHarness.Addin
                 }
 
                 _targetHost.RestoreSaved();
-                _server.Ready = true;
+                // Revit runs ExternalEvents only once it is idle, so requests are not accepted before it has finished starting.
+                var server = _server;
+                application.ControlledApplication.ApplicationInitialized += (sender, args) => server.Ready = true;
 
                 Log("RevitHarness add-in started successfully");
                 return Result.Succeeded;
@@ -93,6 +95,9 @@ namespace RevitHarness.Addin
             catch (Exception ex)
             {
                 Log($"Error during startup: {ex}");
+                // A pipe that can never answer would only report "still starting" forever.
+                _server?.Dispose();
+                _server = null;
                 TaskDialog.Show("RevitHarness Error", $"Failed to start RevitHarness add-in: {ex.Message}");
                 return Result.Failed;
             }

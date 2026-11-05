@@ -125,6 +125,16 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
+        public void Park_refuses_the_harness_loader_itself()
+        {
+            var loader = Path.Combine(_root, "RevitHarness.addin");
+            File.WriteAllText(loader, "loader");
+
+            Assert.False(AddinParker.Park(loader).Ok);
+            Assert.True(File.Exists(loader));
+        }
+
+        [Fact]
         public void Park_refuses_a_missing_manifest_and_a_non_addin_file()
         {
             Assert.False(AddinParker.Park(Path.Combine(_root, "Missing.addin")).Ok);

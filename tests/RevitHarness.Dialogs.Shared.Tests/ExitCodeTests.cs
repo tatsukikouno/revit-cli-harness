@@ -1,6 +1,5 @@
 using RevitHarness.Cli;
 using System;
-using System.IO;
 using Xunit;
 
 namespace RevitHarness.Dialogs.Shared.Tests
@@ -42,11 +41,13 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
-        public void ABrokenPipeIsAConnectionFailureAndOtherExceptionsAreNot()
+        public void OnlyPendingDialogsOfRunningProcessesCountAsBlocking()
         {
-            Assert.Equal(FailureKind.ConnectionFailed, HarnessFailure.FromException(new IOException("pipe closed"))!.Kind);
-            Assert.Equal(FailureKind.ConnectionFailed, HarnessFailure.FromException(new InvalidDataException("bad frame"))!.Kind);
-            Assert.Null(HarnessFailure.FromException(new ArgumentException("bad")));
+            var open = new (string Id, int? Pid)[] { ("live", 100), ("exited", 200), ("unknown-pid", null) };
+
+            var ids = HarnessFailure.LiveDialogIds(open, pid => pid == 100);
+
+            Assert.Equal(new[] { "live", "unknown-pid" }, ids);
         }
     }
 }

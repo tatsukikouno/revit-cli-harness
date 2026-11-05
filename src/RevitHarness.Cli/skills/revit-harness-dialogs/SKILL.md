@@ -38,7 +38,9 @@ the install command first (see the `revit-harness-install` skill).
 ## Unknown dialogs
 
 A dialog with no matching allowlist rule is left untouched and registered as pending. Check for
-pending dialogs whenever a command seems stuck or times out.
+pending dialogs whenever a command seems stuck or times out. Exit code 5 (`DIALOG_BLOCKED`, first stderr
+line `revit-harness: DIALOG_BLOCKED: ...` with the pending ids) means a request got no answer while a dialog
+was pending; exit 4 (`TIMEOUT`) means no dialog was pending.
 
 ```bash
 revit-harness dialog-pending [--all]
@@ -48,7 +50,7 @@ revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by
 1. Read `title`, `bodySummary` and the screenshot at `screenshotPath`.
 2. Pick one of the listed `buttons`, spelled exactly. A button that does not exist is rejected.
 3. Run `dialog-decide` with `--by` set to the agent or model name (mandatory). The watcher
-   presses the button; exit 0 = resolved, 1 = rejected, stale or failed, 2 = the watcher did
+   presses the button; exit 0 = resolved, 1 = rejected, stale or failed, 4 = the watcher did
    not pick it up (start it and retry).
 
 A dialog that disappears before the decision is marked `stale` and cannot be decided.
@@ -60,6 +62,14 @@ time. Only reversible buttons are saved (OK, Cancel, Close); the button is still
 any other choice, but no rule is written (add one by hand if you really want it). "Always Load"
 and "Do Not Load" are never learned, and nothing is learned from a dialog covered by a
 `noLearn` rule.
+
+A learned rule matches on title, AutomationId, button set and a hash of the body text. For
+dialogs titled "External Tool(s)" ("外部ツール"), such as "Missing Add-in Assembly", the quoted
+add-in name that directly follows the word "add-in" in the body (file paths and other quoted
+text stay) is replaced by `<addin>` before hashing, so one decision
+covers the same dialog, with the same path and wording, for every add-in; any other text difference means no match. Rules learned by an earlier
+version hashed the full text and no longer match: delete them from `allowlist.json` and decide
+once more.
 
 ### Unsigned add-in dialog
 

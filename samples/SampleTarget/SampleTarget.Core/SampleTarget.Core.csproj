@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Platforms>x64</Platforms>
+    <Platform>x64</Platform>
+    <BuildTag Condition="'$(BuildTag)' == ''">dev</BuildTag>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildTag" Value="$(BuildTag)" />
+  </ItemGroup>
+</Project>

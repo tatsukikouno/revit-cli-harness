@@ -15,6 +15,30 @@ namespace RevitHarness.Addin.Ipc
     /// <summary>
     /// Named Pipe IPC server for receiving commands from CLI.
     /// </summary>
+    /// <summary>Set once the client of a queued request has given up.</summary>
+    public sealed class Abandonment
+    {
+        private int _set;
+        public bool IsSet => Volatile.Read(ref _set) != 0;
+        public void Set() => Volatile.Write(ref _set, 1);
+    }
+
+    public sealed class QueuedRequest
+    {
+        public QueuedRequest(IpcRequest request, Action<IpcResponse> callback, Abandonment abandoned, DateTime expiresAtUtc)
+        {
+            ExpiresAtUtc = expiresAtUtc;
+            Request = request;
+            Callback = callback;
+            Abandoned = abandoned;
+        }
+
+        public IpcRequest Request { get; }
+        public Action<IpcResponse> Callback { get; }
+        public Abandonment Abandoned { get; }
+        public DateTime ExpiresAtUtc { get; }
+    }
+
     public class IpcServer : IDisposable
     {
         public const string PipeName = "RevitHarness2024";
@@ -22,7 +46,7 @@ namespace RevitHarness.Addin.Ipc
 
         private CancellationTokenSource? _cts;
         private Task? _serverTask;
-        private readonly ConcurrentQueue<(IpcRequest Request, Action<IpcResponse> Callback)> _requestQueue;
+        private readonly ConcurrentQueue<QueuedRequest> _requestQueue;
         private readonly Action<string> _log;
         private readonly ConcurrentDictionary<Task, byte> _clients = new ConcurrentDictionary<Task, byte>();
         private readonly string _pipeName;
@@ -36,12 +60,18 @@ namespace RevitHarness.Addin.Ipc
         /// </summary>
         public Func<IpcRequest, IpcResponse?>? DirectHandler { get; set; }
 
+        /// <summary>
+        /// False while the add-in is still starting: every request the DirectHandler does not answer gets
+        /// HARNESS_NOT_READY instead of waiting in the queue behind OnStartup.
+        /// </summary>
+        public volatile bool Ready = true;
+
         // The pipe name is a parameter so tests can run a server next to a real Revit.
         public IpcServer(Action<string> log, string pipeName = PipeName)
         {
             _log = log;
             _pipeName = pipeName;
-            _requestQueue = new ConcurrentQueue<(IpcRequest, Action<IpcResponse>)>();
+            _requestQueue = new ConcurrentQueue<QueuedRequest>();
         }
 
         /// <summary>
@@ -73,11 +103,23 @@ namespace RevitHarness.Addin.Ipc
         }
 
         /// <summary>
-        /// Tries to dequeue a pending request.
+        /// Tries to dequeue a pending request. A request whose client already gave up
+        /// (its deadline passed or its pipe closed) is dropped here and never returned.
         /// </summary>
-        public bool TryDequeueRequest(out (IpcRequest Request, Action<IpcResponse> Callback) item)
+        public bool TryDequeueRequest(out QueuedRequest item)
         {
-            return _requestQueue.TryDequeue(out item);
+            while (_requestQueue.TryDequeue(out var candidate))
+            {
+                if (candidate.Abandoned.IsSet || DateTime.UtcNow >= candidate.ExpiresAtUtc)
+                {
+                    _log($"Dropped stale request: op={candidate.Request.Op}, id={candidate.Request.Id}");
+                    continue;
+                }
+                item = candidate;
+                return true;
+            }
+            item = null!;
+            return false;
         }
 
         /// <summary>
@@ -136,9 +178,12 @@ namespace RevitHarness.Addin.Ipc
         {
             try
             {
+                var lengthBuffer = new byte[4];
+                Task<int>? carriedRead = null;
                 while (pipe.IsConnected && !ct.IsCancellationRequested)
                 {
-                    var request = await ReadMessageAsync(pipe, ct);
+                    var request = await ReadMessageAsync(pipe, lengthBuffer, carriedRead, ct);
+                    carriedRead = null;
                     if (request == null)
                     {
                         _log("Client disconnected or invalid message");
@@ -160,35 +205,52 @@ namespace RevitHarness.Addin.Ipc
                         continue;
                     }
 
-                    // Create a completion source for the response
-                    var tcs = new TaskCompletionSource<IpcResponse>();
-                    Action<IpcResponse> callback = response =>
+                    if (!Ready)
                     {
-                        tcs.TrySetResult(response);
-                    };
+                        await WriteMessageAsync(pipe, IpcResponse.Failure(request.Id, ErrorCodes.HarnessNotReady, "RevitHarness is still starting: Revit has not finished initializing (or the saved target is still being restored). Retry in a few seconds.", 0), ct);
+                        continue;
+                    }
 
-                    // Enqueue the request
-                    _requestQueue.Enqueue((request, callback));
-
-                    // Wait for response (with timeout)
-                    var timeoutMs = request.GetPayloadValue<int?>("timeoutMs") ?? 300000; // 5 minutes default
-                    using var timeoutCts = new CancellationTokenSource(timeoutMs);
-                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
-
+                    var tcs = new TaskCompletionSource<IpcResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var timeoutMs = Math.Max(1, request.GetPayloadValue<int?>("timeoutMs") ?? 300000); // 5 minutes default
+                    var abandoned = new Abandonment();
+                    var answered = false;
                     try
                     {
-                        var response = await tcs.Task.WithCancellation(linkedCts.Token);
-                        _log($"Sending response: ok={response.Ok}, id={response.Id}");
-                        await WriteMessageAsync(pipe, response, ct);
+                        _requestQueue.Enqueue(new QueuedRequest(request, response => tcs.TrySetResult(response), abandoned, DateTime.UtcNow.AddMilliseconds(timeoutMs)));
+
+                        // The protocol is one request at a time per connection: anything the client sends before the answer ends the wait.
+                        // A pipe read cannot be cancelled on .NET Framework, so the read that watches for a closed pipe
+                        // is the first read of the next message and is carried over to the next loop iteration.
+                        var watch = pipe.ReadAsync(lengthBuffer, 0, 4, ct);
+                        carriedRead = watch;
+                        _ = watch.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+                        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        var timeout = Task.Delay(timeoutMs, timeoutCts.Token);
+                        var first = await Task.WhenAny(tcs.Task, watch, timeout);
+                        timeoutCts.Cancel();
+
+                        if (first == tcs.Task)
+                        {
+                            var response = tcs.Task.Result;
+                            _log($"Sending response: ok={response.Ok}, id={response.Id}");
+                            await WriteMessageAsync(pipe, response, ct);
+                            answered = true;
+                        }
+                        else if (first == timeout)
+                        {
+                            await WriteMessageAsync(pipe, IpcResponse.Failure(request.Id, ErrorCodes.Timeout, "Request timed out", timeoutMs), ct);
+                        }
+                        else
+                        {
+                            _log($"Client gave up on request: op={request.Op}, id={request.Id}");
+                            carriedRead = null;
+                            break;
+                        }
                     }
-                    catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+                    finally
                     {
-                        var timeoutResponse = IpcResponse.Failure(
-                            request.Id,
-                            ErrorCodes.Timeout,
-                            "Request timed out",
-                            timeoutMs);
-                        await WriteMessageAsync(pipe, timeoutResponse, ct);
+                        if (!answered) abandoned.Set();
                     }
                 }
             }
@@ -202,15 +264,19 @@ namespace RevitHarness.Addin.Ipc
             }
         }
 
-        private async Task<IpcRequest?> ReadMessageAsync(Stream stream, CancellationToken ct)
+        private async Task<IpcRequest?> ReadMessageAsync(Stream stream, byte[] lengthBuffer, Task<int>? firstRead, CancellationToken ct)
         {
-            // Read length prefix (int32 little endian)
-            var lengthBuffer = new byte[4];
-            var bytesRead = await stream.ReadAsync(lengthBuffer, 0, 4, ct);
+            // Read length prefix (int32 little endian); firstRead is a read into lengthBuffer that is already in flight
+            var bytesRead = firstRead != null ? await firstRead : await stream.ReadAsync(lengthBuffer, 0, 4, ct);
             if (bytesRead == 0)
                 return null;
-            if (bytesRead != 4)
-                throw new InvalidDataException("Failed to read message length");
+            while (bytesRead < 4)
+            {
+                var more = await stream.ReadAsync(lengthBuffer, bytesRead, 4 - bytesRead, ct);
+                if (more == 0)
+                    throw new InvalidDataException("Failed to read message length");
+                bytesRead += more;
+            }
 
             var length = BitConverter.ToInt32(lengthBuffer, 0);
             if (length <= 0 || length > MaxMessageSize)
@@ -248,22 +314,6 @@ namespace RevitHarness.Addin.Ipc
                 return;
             _disposed = true;
             Stop();
-        }
-    }
-
-    internal static class TaskExtensions
-    {
-        public static async Task<T> WithCancellation<T>(this Task<T> task, CancellationToken ct)
-        {
-            var tcs = new TaskCompletionSource<bool>();
-            using (ct.Register(s => ((TaskCompletionSource<bool>)s!).TrySetResult(true), tcs))
-            {
-                if (task != await Task.WhenAny(task, tcs.Task))
-                {
-                    throw new OperationCanceledException(ct);
-                }
-            }
-            return await task;
         }
     }
 }

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Runs the net48 generation loader (Cecil rename + Assembly.LoadFile) without Revit.
+       Outside the solution, like the samples: dotnet test tests/RevitHarness.Framework.Tests -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\GenerationLoader.cs" Link="Addin\GenerationLoader.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\AssemblyRenamer.cs" Link="Addin\AssemblyRenamer.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\ReferenceResolver.cs" Link="Addin\ReferenceResolver.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\ShadowCopier.cs" Link="Addin\ShadowCopier.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Mono.Cecil" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

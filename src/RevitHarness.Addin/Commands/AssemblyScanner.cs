@@ -34,18 +34,14 @@ namespace RevitHarness.Addin.Commands
         public List<DiscoveredType> Scan(string assemblyPath)
         {
             var results = new List<DiscoveredType>();
-            ResolveEventHandler? resolver = null;
 
             try
             {
                 if (!File.Exists(assemblyPath))
                     throw new FileNotFoundException($"Assembly not found: {assemblyPath}");
 
-                _log($"Scanning: {assemblyPath}");
-                var shadowPath = _shadowCopier.CopyToShadow(assemblyPath);
-                var (assembly, assemblyResolver) = _shadowCopier.LoadAssemblyFromBytes(shadowPath);
-                resolver = assemblyResolver;
-                AppDomain.CurrentDomain.AssemblyResolve += resolver;
+                using var lease = AssemblyLease.Open(_shadowCopier, assemblyPath, _log);
+                var assembly = lease.Assembly;
 
                 Type[] exportedTypes;
                 try
@@ -94,13 +90,6 @@ namespace RevitHarness.Addin.Commands
             {
                 _log($"BadImageFormatException: {ex.Message}");
                 throw;
-            }
-            finally
-            {
-                if (resolver != null)
-                {
-                    AppDomain.CurrentDomain.AssemblyResolve -= resolver;
-                }
             }
 
             return results;

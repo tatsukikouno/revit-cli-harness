@@ -39,8 +39,13 @@
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="Mono.Cecil" Condition="'$(RevitYearSuffix)'=='R24'" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" PrivateAssets="all" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RevitYearSuffix)'!='R24'">
+    <Compile Remove="Ipc\AssemblyRenamer.cs" />
   </ItemGroup>
 
   <ItemGroup>

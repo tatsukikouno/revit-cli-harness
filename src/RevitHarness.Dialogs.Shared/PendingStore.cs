@@ -83,7 +83,7 @@ namespace RevitHarness.Dialogs
                 var fingerprint = candidate.Key?.Fingerprint();
                 var existing = open.FirstOrDefault(p => p.Source == candidate.Source && p.Pid == candidate.Pid &&
                     (candidate.Hwnd == null || p.Hwnd == null || p.Hwnd == candidate.Hwnd) &&
-                    p.Key?.Fingerprint() == fingerprint);
+                    p.Key?.Fingerprint() == fingerprint && DialogKey.SameBody(p.Dialog, candidate.Dialog));
                 if (existing != null)
                 {
                     existing.Hwnd = candidate.Hwnd ?? existing.Hwnd;

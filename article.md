@@ -328,7 +328,6 @@ steps:
 | `ping` | 疎通確認 | なし |
 | `runTests` | テスト実行 | `assemblyPath`, `entryType`, `args` |
 | `runCommand` | コマンド実行 | `assemblyPath`, `commandType`, `args` |
-| `postCommand` | 登録済みRevitコマンド実行 | `commandId` |
 | `shutdown` | IPCサーバー停止 | なし |
 
 ### 終了コード

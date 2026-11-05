@@ -4,6 +4,7 @@ using Autodesk.Revit.UI;
 using RevitHarness.Addin.Commands;
 using RevitHarness.Addin.DialogHandling;
 using RevitHarness.Addin.Ipc;
+using RevitHarness.Contracts;
 using System;
 using System.IO;
 using System.Reflection;
@@ -19,6 +20,7 @@ namespace RevitHarness.Addin
         private HarnessEventHandler? _eventHandler;
         private Timer? _processingTimer;
         private DialogHooks? _dialogHooks;
+        private TargetHost? _targetHost;
         private static readonly object _logLock = new object();
         private static StreamWriter? _logWriter;
 
@@ -38,6 +40,7 @@ namespace RevitHarness.Addin
                 // Create IPC server
                 _server = new IpcServer(Log);
                 _server.DirectHandler = DialogIpcHandler.TryHandle;
+                _server.Ready = false;
 
                 // Create event handler
                 _eventHandler = new HarnessEventHandler(_server, Log);
@@ -55,6 +58,10 @@ namespace RevitHarness.Addin
                 {
                     Log($"Dialog hooks failed (non-fatal): {dialogEx.Message}");
                 }
+
+                _targetHost = new TargetHost(new ShadowCopier(Log), Log);
+                _targetHost.Attach(application);
+                TargetHost.Instance = _targetHost;
 
                 // Start IPC server
                 _server.Start();
@@ -76,12 +83,20 @@ namespace RevitHarness.Addin
                     Log($"Ribbon creation failed (non-fatal): {ribbonEx.Message}");
                 }
 
+                _targetHost.RestoreSaved();
+                // Revit runs ExternalEvents only once it is idle, so requests are not accepted before it has finished starting.
+                var server = _server;
+                application.ControlledApplication.ApplicationInitialized += (sender, args) => server.Ready = true;
+
                 Log("RevitHarness add-in started successfully");
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
                 Log($"Error during startup: {ex}");
+                // A pipe that can never answer would only report "still starting" forever.
+                _server?.Dispose();
+                _server = null;
                 TaskDialog.Show("RevitHarness Error", $"Failed to start RevitHarness add-in: {ex.Message}");
                 return Result.Failed;
             }
@@ -95,6 +110,10 @@ namespace RevitHarness.Addin
             try
             {
                 Log("RevitHarness add-in shutting down...");
+
+                _targetHost?.StopForRevitExit();
+                TargetHost.Instance = null;
+                _targetHost = null;
 
                 _dialogHooks?.Unsubscribe();
                 _dialogHooks = null;

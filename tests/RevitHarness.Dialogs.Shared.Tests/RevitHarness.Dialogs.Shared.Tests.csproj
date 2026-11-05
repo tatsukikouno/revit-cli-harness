@@ -10,6 +10,11 @@
     <Compile Include="..\..\src\RevitHarness.Addin\DialogHandling\DialogLogReader.cs" Link="Addin\DialogLogReader.cs" />
     <Compile Include="..\..\src\RevitHarness.Addin\Ipc\IpcServer.cs" Link="Addin\IpcServer.cs" />
     <Compile Include="..\..\src\RevitHarness.Addin\Ipc\IpcMessages.cs" Link="Addin\IpcMessages.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\GenerationLoader.cs" Link="Addin\GenerationLoader.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\AssemblyRenamer.cs" Link="Addin\AssemblyRenamer.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\ReferenceResolver.cs" Link="Addin\ReferenceResolver.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\ShadowCopier.cs" Link="Addin\ShadowCopier.cs" />
+    <Compile Include="..\..\src\RevitHarness.Cli\Diagnostics\*.cs" Link="Cli\Diagnostics\%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\src\RevitHarness.Cli\Installation\*.cs" Link="Cli\%(Filename)%(Extension)" />
@@ -21,7 +26,12 @@
     <EmbeddedResource Include="TestData\RevitHarness.addin" LogicalName="RevitHarness.addin" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\..\samples\allowlist.sample.json" Link="allowlist.sample.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Mono.Cecil" />
     <PackageReference Include="xunit" />
     <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />

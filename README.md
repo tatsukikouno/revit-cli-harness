@@ -10,7 +10,7 @@ A harness add-in for Revit 2024, 2025, 2026 and 2027 that enables CLI and agent-
 ## Features
 
 - **Named Pipe IPC** — Fast JSON-based communication between CLI and Revit
-- **Shadow Copy + Byte Load** — DLLs are shadow-copied and loaded from byte arrays, bypassing file locks and the .NET assembly cache for seamless iterative development
+- **Generation loading** — DLLs are shadow-copied and loaded into fresh generations, bypassing file locks and the .NET assembly cache for seamless iterative development
 - **Element Lookup** — RevitLookup-style element inspection from the CLI
 - **Addin Manager UI** — A Revit ribbon button that opens a GUI to browse DLLs, scan for commands, and execute them
 - **HarnessCommandBase** — Write a single class that works both from the CLI (`IHarnessCommand`) and as a Revit ribbon button (`IExternalCommand`)
@@ -31,6 +31,7 @@ dotnet tool install -g RevitHarness.Cli
 # Install: the add-in, the dialog watcher and the SKILLs (re-running overwrites cleanly)
 revit-harness install --revit-version 2024   # 2024, 2025, 2026 or 2027
 revit-harness install --revit-version 2024 --skills-dir D:\my-skills   # SKILLs elsewhere
+revit-harness install --revit-version 2024 --vendor-id <your-vendor-id>  # see "VendorId" below
 
 # Check status
 revit-harness status
@@ -83,14 +84,6 @@ revit-harness run-command --dll "path/to/command.dll" --type "Company.MyCommand"
 
 Executes a type implementing `IHarnessCommand` or `IExternalCommand`. An `IExternalCommand` receives a real `ExternalCommandData` (`commandData.Application` is the running `UIApplication`; `View` is the active document's active view, or `null` without a document). See `samples/SampleCommands`.
 
-### post-command — Post a Registered Revit Command
-
-```bash
-revit-harness post-command --id "CustomCtrl_%CustomCtrl_%Add-Ins%Addin%Command"
-```
-
-Triggers a registered Revit ribbon command by its command ID.
-
 ### lookup — Element Inspection
 
 ```bash
@@ -129,9 +122,9 @@ revit-harness dialog-pending [--all]      # open entries (id, title, automationI
 revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by "<agent or model name>" [--save-rule] [--timeout 10000]
 ```
 
-Check for pending dialogs whenever a command seems stuck or times out (a modal dialog blocks Revit), read `bodySummary` and the screenshot, then press one of the listed buttons. A nonexistent button is rejected. The watcher (`revit-harness dialog-watcher start`) must be running: it presses the button by UI Automation and completes the entry, which the CLI waits for (exit 0 resolved, 1 rejected/stale/failed, 2 watcher did not pick it up; the request is then withdrawn). `--by` is mandatory and lands in the log as `decidedBy="external"`, `deciderName=<by>`. A dialog that disappears before the decision is marked `stale` and cannot be decided.
+Check for pending dialogs whenever a command seems stuck or times out (a modal dialog blocks Revit), read `bodySummary` and the screenshot, then press one of the listed buttons. A nonexistent button is rejected. The watcher (`revit-harness dialog-watcher start`) must be running: it presses the button by UI Automation and completes the entry, which the CLI waits for (exit 0 resolved, 1 rejected/stale/failed, 4 watcher did not pick it up; the request is then withdrawn). `--by` is mandatory and lands in the log as `decidedBy="external"`, `deciderName=<by>`. A dialog that disappears before the decision is marked `stale` and cannot be decided.
 
-`--save-rule` also writes an allowlist rule, but only for buttons known to be reversible (OK, Cancel, Close); a destructive button is pressed once and never learned, write that rule by hand if you really want it. A dialog covered by a `noLearn` rule is never saved, and neither is anything on the unsigned add-in security dialog.
+`--save-rule` also writes an allowlist rule, but only for buttons known to be reversible (OK, Cancel, Close); a destructive button is pressed once and never learned, write that rule by hand if you really want it. A dialog covered by a `noLearn` rule is never saved, and neither is anything on the unsigned add-in security dialog. A learned rule matches on title, AutomationId, button set and a hash of the body text. For dialogs titled "External Tool(s)" ("外部ツール"), such as "Missing Add-in Assembly", the quoted add-in name that directly follows the word "add-in" in the body (file paths and other quoted text stay) is replaced by `<addin>` before hashing, so one decision covers the same dialog, with the same path and wording, for every add-in; any other text difference still means no match. Rules learned by an earlier version hashed the full text and no longer match: delete them from `allowlist.json` and decide once more.
 
 **Testers**: mark the dialogs your test deliberately provokes with a rule that has `"noLearn": true`, so they are never auto-pressed or learned and always reach the caller as pending (see `samples/allowlist.sample.json`).
 
@@ -142,13 +135,13 @@ Check for pending dialogs whenever a command seems stuck or times out (a modal d
 ### Other
 
 ```bash
-revit-harness version   # Show version
-revit-harness help      # Show help
+revit-harness version   # Show version (also --version, -v)
+revit-harness help      # Show help (also --help, -h)
 ```
 
 ## Dialog Watcher (FlaUI)
 
-`src/RevitHarness.DialogWatcher` is an on-demand exe (net10.0-windows, needs the .NET 10 Desktop Runtime, no Revit dependency) that watches Revit.exe top-level windows and Windows error reporting dialogs (WerFault) through UI Automation (WindowOpened event plus a 300 ms poll). Known dialogs are answered from the allowlist (`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`) by pressing the button with the UIA Invoke pattern (never the real mouse). Unknown dialogs get a UIA tree dump in `dialogs\dumps\`, a screenshot in `dialogs\screenshots\` and a JSONL log record plus a pending entry; nothing is pressed. `install` and `uninstall` refuse to run while Revit.exe is running (close Revit first), and `install`, `uninstall` and `dialog-watcher start|stop` take a cross-process lock and fail with a message when another one is running. `dialog-watcher start` fails with a message naming the .NET Desktop Runtime to install when it is missing.
+`src/RevitHarness.DialogWatcher` is an on-demand exe (net10.0-windows, needs the .NET 10 Desktop Runtime, no Revit dependency) that watches Revit.exe top-level windows and Windows error reporting dialogs (WerFault) through UI Automation (WindowOpened event plus a 300 ms poll). Known dialogs are answered from the allowlist (`%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json`) by pressing the button with the UIA Invoke pattern (never the real mouse). A press that leaves the dialog open is repeated on the next scan, up to three presses per window, and only for reversible buttons; after that the dialog becomes a pending entry. Unknown dialogs get a UIA tree dump in `dialogs\dumps\`, a screenshot in `dialogs\screenshots\` and a JSONL log record plus a pending entry; nothing is pressed. `install` and `uninstall` refuse to run while Revit.exe is running (close Revit first), and `install`, `uninstall` and `dialog-watcher start|stop` take a cross-process lock and fail with a message when another one is running. `dialog-watcher start` fails with a message naming the .NET Desktop Runtime to install when it is missing.
 
 ```bash
 dotnet build src/RevitHarness.DialogWatcher -c Debug -p:Platform=x64   # only needed when building from source
@@ -165,11 +158,86 @@ Exe options: `--once`, `--dry-run`, `--pid <revit pid>`. The allowlist, pending 
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Failure (`ok=false` or `passed=false`) |
-| 2 | Connection / infrastructure error |
+| Code | stderr token | Meaning |
+|------|--------------|---------|
+| 0 | | Success |
+| 1 | | Failure (`ok=false` or `passed=false`, or a CLI error) |
+| 2 | `CONNECTION_FAILED` | No pipe or the pipe broke: Revit is not running, or the harness add-in is not loaded |
+| 3 | `HARNESS_NOT_READY` | Connected, but Revit has not finished starting (add-in OnStartup, saved-target restore, `ApplicationInitialized`); retry in a few seconds |
+| 4 | `TIMEOUT` | Revit did not answer within `--timeout` and no dialog is pending |
+| 5 | `DIALOG_BLOCKED` | No answer and a dialog is pending; stderr lists the ids. Run `dialog-pending`, then `dialog-decide` |
+
+For codes 2 to 5 the first stderr line is `revit-harness: <TOKEN>: <message>`, and the JSON on stdout carries the token in `error.code`. A request Revit has not started yet is dropped and never runs later; one that already started (for example a command that raised the dialog itself) still finishes, so check its effect before running it again.
+
+## Target add-in hot reload
+
+Reload a resident `IExternalApplication` and its own helper DLLs without restarting Revit, without
+changing the add-in's source. The design and the alternatives that were rejected are in
+[docs/hot-reload-redesign.md](docs/hot-reload-redesign.md).
+
+Build for Revit 2024 (net48), 2025/2026 (net8.0-windows), or 2027 (net10.0-windows) into an output
+directory that is **not** a Revit Addins folder, and load the target through the harness only.
+
+```bash
+revit-harness reload --dll "C:\path\SampleTarget.dll" --type SampleTarget.App [--timeout <ms>]
+revit-harness target-status
+revit-harness unload [--timeout <ms>]
+```
+
+Reload runs old `OnShutdown`, disposes the old generation, copies the target's directory, and runs new
+`OnStartup`. Shutdown exceptions become warnings and reload continues. Startup exceptions
+fail the request (`ok=false`) and leave the target `Unloaded`. `target-status` reports the
+current generation, path/type, load time, runtime, working set, generation counts, and old live
+ALCs (null on net48). `status` remains the installation status command.
+
+**Files and `Assembly.Location`.** Each reload copies the whole directory that holds the target DLL (all
+files, subdirectories included) to `%LOCALAPPDATA%\RevitHarness\shadow\<timestamp>\` and loads the target
+by path from that copy. `Assembly.Location` is the shadow path, and files the add-in reads beside its DLL
+(settings, templates, data) are there, so unmodified `Assembly.Location` code works. What the add-in must
+know: files it **writes** beside its DLL land in the shadow copy and are discarded on the next reload (keep
+persistent state under `%APPDATA%` or `%LOCALAPPDATA%`), and satellite resource assemblies in
+subdirectories are copied but not bound (neutral resources embedded in the DLL work).
+
+**References.** A file in the target directory with the same name as a file in the Revit install directory
+(`RevitAPI`, `RevitAPIUI`, `RevitAPIIFC`, `AdWindows`, `UIFramework`, `Newtonsoft.Json`, ...) is Revit's: the
+target's copy is not loaded, so a CopyLocal build cannot create a second `RevitAPI` (unless the target's copy has a
+higher assembly version than Revit's, which the target then owns). Other helper DLLs
+belong to the generation. On net8/net10 each generation is its own collectible `AssemblyLoadContext`; on
+net48 there is no unloadable context, so the harness renames the helper DLLs per generation (Mono.Cecil,
+names only) and loads each by path with `Assembly.LoadFile`.
+
+**The `.addin` a build emits.** If a build writes the target's own manifest into an Addins folder, Revit
+loads the target itself at startup and the harness would load a second copy. Park it (a rename, nothing is
+deleted; run it again after a build re-emits the file; takes effect at the next Revit start):
+
+```bash
+revit-harness prepare-target --addin "C:\path\Target.addin"            # Target.addin -> Target.addin.parked
+revit-harness prepare-target --addin "C:\path\Target.addin" --restore
+```
+
+**VendorId.** Extensible Storage schemas gated by a vendor id must match the `<VendorId>` of the add-in that
+is running, and hot-loaded code runs as the harness add-in. Set it at install time:
+`revit-harness install --revit-version 2024 --vendor-id <id>`. A reinstall without the flag keeps the
+installed id; `status` shows it. Revit reads manifests at startup, so **restart Revit after the VendorId
+changes** (install already needs Revit closed). Nothing about the id is committed, and the target's own
+`.addin` is never edited.
+
+The harness `.addin` serves as the thin loader. Each successful reload saves the target DLL
+path and type to `%LOCALAPPDATA%\RevitHarness\target.json`. Harness startup restores that
+target at startup; restoration failure is non-fatal (requests get
+`HARNESS_NOT_READY` until it finishes). `unload` deletes the file and stops the target.
+
+The target's `OnShutdown` must unregister updaters, unsubscribe events, dispose
+`ExternalEvent` instances and timers, and stop background work. On net8/net10 references left
+behind can prevent release (check `previousReleased`, `released`, and warnings). On net48 old
+generations stay in memory until Revit exits, and WPF pack URIs resolve by assembly name, so
+XAML resources of the target bind to its first generation. Native DLLs are unsupported.
+Register `IUpdater`s with `application.ActiveAddInId` (the harness's id while it hosts the
+target); Revit rejects any other owner. Values a command
+serializes through the host's Newtonsoft.Json with its own types (for example anonymous
+objects) stay in that library's caches and keep a net8+ generation from being released.
+See [SampleTarget](samples/SampleTarget/README.md) for build commands and a probe of
+startup/shutdown, helper DLL updates, events, and updaters.
 
 ## Addin Manager UI
 
@@ -247,9 +315,13 @@ JSON messages over Named Pipe `\\.\pipe\RevitHarness2024` with length-prefix fra
 | `ping` | Health check |
 | `runTests` | Execute `ITestEntryPoint` |
 | `runCommand` | Execute `IHarnessCommand` / `IExternalCommand` |
-| `postCommand` | Post a registered Revit command |
+| `reload` | Replace the target IExternalApplication generation |
+| `unload` | Stop and dispose the target generation |
+| `targetStatus` | Target state, memory, generations |
 | `lookupElement` | Element inspection |
 | `shutdown` | Stop the IPC server |
+| `dialog-log` | Recent dialog records (answered on the pipe thread, works while a modal blocks Revit) |
+| `reload-allowlist` | Validate the dialog allowlist (same) |
 
 ## Development
 
@@ -306,7 +378,7 @@ revit-cli-harness/
 %LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\
 ```
 
-Old directories are automatically cleaned up (max 10 generations, deleted after 1 day).
+Each Revit process uses its own `shadow\<pid>` folder; the next start deletes the folders of exited processes. Each directory is a full copy of the target's output directory. After each reload or unload, directories of generations that are no longer live are deleted, except the newest three. On net48 every generation stays loaded until Revit exits, so its copy stays too.
 
 ## License
 

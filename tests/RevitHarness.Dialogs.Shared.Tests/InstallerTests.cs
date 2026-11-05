@@ -50,6 +50,115 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
+        public void Install_uses_the_packaged_vendor_id_first_then_the_given_one_then_keeps_it()
+        {
+            var manifest = _layout.ManifestPath(2024);
+
+            Assert.True(NewInstaller().Install(2024).Success);
+            Assert.Equal("packaged-default", AddinManifest.ReadVendorId(manifest));
+
+            var custom = NewInstaller().Install(2024, "Acme & <Co>");
+            Assert.True(custom.Success);
+            Assert.Equal("Acme & <Co>", custom.VendorId);
+            Assert.Equal("Acme & <Co>", AddinManifest.ReadVendorId(manifest));
+
+            Assert.True(NewInstaller().Install(2024).Success);
+            Assert.Equal("Acme & <Co>", AddinManifest.ReadVendorId(manifest));
+            Assert.Equal("Acme & <Co>", NewInstaller().GetStatus(2024).VendorId);
+        }
+
+        [Fact]
+        public void Install_without_a_vendor_id_refuses_to_replace_an_unreadable_manifest()
+        {
+            Assert.True(NewInstaller().Install(2024, "kept").Success);
+            File.WriteAllText(_layout.ManifestPath(2024), "<broken");
+
+            var result = NewInstaller().Install(2024);
+
+            Assert.False(result.Success);
+            Assert.Contains("--vendor-id", result.Message);
+            Assert.Equal("<broken", File.ReadAllText(_layout.ManifestPath(2024)));
+            Assert.True(NewInstaller().Install(2024, "kept").Success);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("  ")]
+        [InlineData(" lead")]
+        [InlineData("two\nlines")]
+        public void Install_rejects_an_unusable_vendor_id_before_touching_anything(string vendorId)
+        {
+            var result = NewInstaller().Install(2024, vendorId);
+
+            Assert.False(result.Success);
+            Assert.Contains("--vendor-id", result.Message);
+            Assert.False(File.Exists(_layout.ManifestPath(2024)));
+        }
+
+        [Fact]
+        public void Park_renames_the_manifest_and_restore_puts_it_back_without_deleting_anything()
+        {
+            var addin = Path.Combine(_root, "Product.addin");
+            File.WriteAllText(addin, "manifest");
+
+            Assert.True(AddinParker.Park(addin).Ok);
+            Assert.False(File.Exists(addin));
+            Assert.Equal("manifest", File.ReadAllText(addin + ".parked"));
+            Assert.True(AddinParker.Park(addin).Ok);
+
+            Assert.True(AddinParker.Restore(addin).Ok);
+            Assert.Equal("manifest", File.ReadAllText(addin));
+            Assert.False(File.Exists(addin + ".parked"));
+        }
+
+        [Fact]
+        public void Park_after_a_build_re_emitted_the_manifest_replaces_the_older_parked_copy()
+        {
+            var addin = Path.Combine(_root, "Product.addin");
+            File.WriteAllText(addin + ".parked", "old");
+            File.WriteAllText(addin, "fresh");
+
+            Assert.True(AddinParker.Park(addin).Ok);
+
+            Assert.False(File.Exists(addin));
+            Assert.Equal("fresh", File.ReadAllText(addin + ".parked"));
+        }
+
+        [Fact]
+        public void Restore_never_overwrites_an_active_manifest()
+        {
+            var addin = Path.Combine(_root, "Product.addin");
+            File.WriteAllText(addin + ".parked", "old");
+            File.WriteAllText(addin, "fresh");
+
+            var result = AddinParker.Restore(addin);
+
+            Assert.False(result.Ok);
+            Assert.Equal("fresh", File.ReadAllText(addin));
+            Assert.Equal("old", File.ReadAllText(addin + ".parked"));
+        }
+
+        [Fact]
+        public void Park_refuses_the_harness_loader_itself()
+        {
+            var loader = Path.Combine(_root, "RevitHarness.addin");
+            File.WriteAllText(loader, "loader");
+
+            Assert.False(AddinParker.Park(loader).Ok);
+            Assert.True(File.Exists(loader));
+        }
+
+        [Fact]
+        public void Park_refuses_a_missing_manifest_and_a_non_addin_file()
+        {
+            Assert.False(AddinParker.Park(Path.Combine(_root, "Missing.addin")).Ok);
+            var dll = Path.Combine(_root, "x.dll");
+            File.WriteAllText(dll, "x");
+            Assert.False(AddinParker.Park(dll).Ok);
+            Assert.True(File.Exists(dll));
+        }
+
+        [Fact]
         public void Install_twice_replaces_stale_files()
         {
             NewInstaller().Install(2024);

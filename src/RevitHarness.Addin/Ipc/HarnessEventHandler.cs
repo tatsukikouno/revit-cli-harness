@@ -37,9 +37,6 @@ namespace RevitHarness.Addin.Ipc
             _logs = new List<string>();
             _log = log;
 
-            // Pin the Contracts assembly so that the resolver always returns the Harness addin's copy,
-            // even when other addins (e.g., RevitSDK AddIn Manager) load duplicate copies.
-            _shadowCopier.PinAssembly(typeof(ITestEntryPoint).Assembly);
         }
 
         public string GetName() => "RevitHarnessEventHandler";
@@ -52,7 +49,8 @@ namespace RevitHarness.Addin.Ipc
             // Process all pending requests
             while (_server.TryDequeueRequest(out var item))
             {
-                var (request, callback) = item;
+                var request = item.Request;
+                var callback = item.Callback;
                 var sw = Stopwatch.StartNew();
                 _logs.Clear();
 
@@ -91,6 +89,15 @@ namespace RevitHarness.Addin.Ipc
 
                 case Operations.RunCommand:
                     return WithDialogContext(request, () => HandleRunCommand(request, sw));
+
+                case Operations.Reload:
+                    return WithDialogContext(request, () => HandleReload(request, sw));
+
+                case Operations.Unload:
+                    return WithDialogContext(request, () => HandleTargetOp(request, sw, host => host.Unload()));
+
+                case Operations.TargetStatus:
+                    return HandleTargetOp(request, sw, host => host.Status());
 
                 case Operations.Shutdown:
                     return HandleShutdown(request, sw);
@@ -164,21 +171,10 @@ namespace RevitHarness.Addin.Ipc
                     sw.ElapsedMilliseconds);
             }
 
-            ResolveEventHandler? resolver = null;
             try
             {
-                // Shadow copy the assembly
-                Log($"Shadow copying: {assemblyPath}");
-                var shadowPath = _shadowCopier.CopyToShadow(assemblyPath!);
-                Log($"Shadow path: {shadowPath}");
-
-                // Load the assembly from bytes to bypass .NET assembly cache
-                // This allows reloading modified assemblies with the same name+version
-                Log($"Loading assembly from bytes (cache bypass)");
-                var (assembly, assemblyResolver) = _shadowCopier.LoadAssemblyFromBytes(shadowPath);
-                resolver = assemblyResolver;
-                AppDomain.CurrentDomain.AssemblyResolve += resolver;
-                Log($"Assembly loaded: {assembly.FullName}");
+                using var lease = AssemblyLease.Open(_shadowCopier, assemblyPath!, Log);
+                var assembly = lease.Assembly;
 
                 // Find the entry type
                 var type = assembly.GetType(entryType);
@@ -266,14 +262,6 @@ namespace RevitHarness.Addin.Ipc
                     sw.ElapsedMilliseconds,
                     new { stackTrace = ex.ToString() });
             }
-            finally
-            {
-                // Remove the assembly resolver to avoid memory leaks
-                if (resolver != null)
-                {
-                    AppDomain.CurrentDomain.AssemblyResolve -= resolver;
-                }
-            }
         }
 
         private IpcResponse HandleRunCommand(IpcRequest request, Stopwatch sw)
@@ -328,6 +316,36 @@ namespace RevitHarness.Addin.Ipc
                     result.ErrorMessage ?? "Unknown error",
                     sw.ElapsedMilliseconds,
                     result.StackTrace != null ? new { stackTrace = result.StackTrace } : null);
+            }
+        }
+
+        private IpcResponse HandleReload(IpcRequest request, Stopwatch sw)
+        {
+            var assemblyPath = request.GetPayloadValue<string>("assemblyPath");
+            var entryType = request.GetPayloadValue<string>("entryType");
+            if (string.IsNullOrEmpty(assemblyPath) || string.IsNullOrEmpty(entryType))
+                return IpcResponse.Failure(request.Id, ErrorCodes.InvalidRequest, "assemblyPath and entryType are required", sw.ElapsedMilliseconds);
+            if (!File.Exists(assemblyPath))
+                return IpcResponse.Failure(request.Id, ErrorCodes.AssemblyNotFound, $"Assembly not found: {assemblyPath}", sw.ElapsedMilliseconds);
+            return HandleTargetOp(request, sw, host => host.Reload(assemblyPath!, entryType!));
+        }
+
+        private IpcResponse HandleTargetOp(IpcRequest request, Stopwatch sw, Func<TargetHost, object> run)
+        {
+            try
+            {
+                var host = TargetHost.Instance ?? throw new InvalidOperationException("Target host is not initialized");
+                return IpcResponse.Success(request.Id, run(host), sw.ElapsedMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                Log($"{request.Op} failed: {ex}");
+                return IpcResponse.Failure(
+                    request.Id,
+                    ErrorCodes.EntrypointFailed,
+                    ex.Message,
+                    sw.ElapsedMilliseconds,
+                    new { stackTrace = ex.ToString() });
             }
         }
 

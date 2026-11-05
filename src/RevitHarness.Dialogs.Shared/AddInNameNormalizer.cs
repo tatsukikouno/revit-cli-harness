@@ -1,0 +1,35 @@
+using System;
+using System.Text.RegularExpressions;
+
+namespace RevitHarness.Dialogs
+{
+    public static class AddInNameNormalizer
+    {
+        // Only a quoted token directly after the word "add-in" / "アドイン" is the add-in name. Other quoted text
+        // (exception messages, class names) stays, so different failures never share a rule.
+        private static readonly Regex QuotedToken = new Regex(
+            "(?<=(?:add-?in|アドイン)\\s*)(?:\"(?<name>[^\"\\r\\n\\u0085\\u2028\\u2029]*)\"|“(?<name>[^”\\r\\n\\u0085\\u2028\\u2029]*)”|‘(?<name>[^’\\r\\n\\u0085\\u2028\\u2029]*)’|「(?<name>[^」\\r\\n\\u0085\\u2028\\u2029]*)」)",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+        public static string Normalize(DialogInfo dialog)
+        {
+            var title = (dialog.Title ?? string.Empty).Trim();
+            if (!title.StartsWith("External Tool", StringComparison.OrdinalIgnoreCase) &&
+                !title.StartsWith("外部ツール", StringComparison.OrdinalIgnoreCase))
+                return DialogKey.NormalizeText(dialog.Text);
+
+            var text = QuotedToken.Replace(dialog.Text ?? string.Empty, match =>
+            {
+                var name = match.Groups["name"].Value;
+                if (name.Length < 1 || name.Length > 200 || name.IndexOfAny(new[] { '\\', '/' }) >= 0 ||
+                    name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+                    name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                    name.EndsWith(".addin", StringComparison.OrdinalIgnoreCase))
+                    return match.Value;
+
+                return match.Value.Substring(0, 1) + "<addin>" + match.Value.Substring(match.Value.Length - 1);
+            });
+            return DialogKey.NormalizeText(text);
+        }
+    }
+}

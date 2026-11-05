@@ -24,6 +24,10 @@ namespace RevitHarness.DialogWatcher
         private readonly UIA3Automation automation = new UIA3Automation();
         private readonly AutoResetEvent signal = new AutoResetEvent(false);
         private readonly Dictionary<long, string> handled = new Dictionary<long, string>();
+        private readonly Dictionary<long, int> unclosedPresses = new Dictionary<long, int>();
+        private const int MaxPresses = 3;
+        // Revit can take seconds to tear a dialog down while it loads add-ins. Returns as soon as the window is gone, so a wait this long costs nothing for a dialog that closes at once.
+        private static readonly TimeSpan CloseWait = TimeSpan.FromSeconds(6);
         private readonly Dictionary<int, string> processNames = new Dictionary<int, string>();
 
         public int Processed { get; private set; }
@@ -73,6 +77,7 @@ namespace RevitHarness.DialogWatcher
         {
             var hwnds = new HashSet<long>(candidates.Select(c => c.Hwnd));
             foreach (var gone in handled.Keys.Where(h => !hwnds.Contains(h)).ToList()) handled.Remove(gone);
+            foreach (var gone in unclosedPresses.Keys.Where(h => !hwnds.Contains(h)).ToList()) unclosedPresses.Remove(gone);
         }
 
         private static readonly TimeSpan StaleGrace = TimeSpan.FromSeconds(2);
@@ -133,14 +138,14 @@ namespace RevitHarness.DialogWatcher
             };
             if (options.DryRun) { Note(shadow, "dry-run", "would press '" + button.Name + "' for pending " + entry.Id); pending.Complete(entry.Id, false, "dry-run"); return; }
             var live = DialogCollector.Collect(window.Element, window.ProcessName);
-            if (entry.Key != null && !entry.Key.Equals(DialogKey.From(live)))
+            if (entry.Key != null && (!entry.Key.Equals(DialogKey.From(live)) || !DialogKey.SameBody(entry.Dialog, live)))
             { pending.Complete(entry.Id, false, "the dialog changed after it was reviewed; not pressed"); return; }
             var target = DialogCollector.FindButton(window.Element, button);
             if (target == null) { pending.Complete(entry.Id, false, "button not found in the live window"); return; }
             if (!target.Patterns.Invoke.IsSupported) { pending.Complete(entry.Id, false, "button does not support Invoke; not pressed"); return; }
             var error = InvokeGuard.Run(() => target.Patterns.Invoke.Pattern.Invoke(), InvokeTimeout);
             if (error != null) { shadow.Button = null; shadow.Record.PressedButton = null; }
-            try { Observe(shadow, window.Element, entry.Pid ?? 0, entry.Hwnd ?? 0, entry.Title); }
+            try { Observe(shadow, entry.Pid ?? 0, entry.Hwnd ?? 0, entry.Title); }
             catch (Exception exception) { Console.Error.WriteLine("outcome logging failed: " + exception.Message); }
             CompleteWithRetry(entry.Id, error == null, error);
         }
@@ -256,6 +261,7 @@ namespace RevitHarness.DialogWatcher
             long hwnd = window.Properties.NativeWindowHandle.ValueOrDefault.ToInt64();
             var signature = info.Title + "\u0001" + info.Text + "\u0001" + string.Join("|", info.Buttons) + "\u0001" + AllowlistStamp() +
                 "\u0001" + RuntimeIdOf(window);
+            if (unclosedPresses.TryGetValue(hwnd, out var spent) && spent >= MaxPresses) return;
             if (handled.TryGetValue(hwnd, out var seen) && seen == signature) return;
             handled[hwnd] = signature;
             Processed++;
@@ -279,10 +285,17 @@ namespace RevitHarness.DialogWatcher
             var error = InvokeGuard.Run(() => target.Patterns.Invoke.Pattern.Invoke(), InvokeTimeout);
             if (error != null) { Skipped(decision, info, error, shot, dump, hwnd, pid); return; }
             pending.SupersedeApiEntries(pid, "watcher " + decision.Record.LogId);
-            Observe(decision, window, pid, hwnd, info.Title);
+            // The window is gone, so its handle may be reused at once by the next dialog (Revit shows several in a row,
+            // often with identical text). Forgetting it here keeps that successor from matching the old signature.
+            if (Observe(decision, pid, hwnd, info.Title)) { unclosedPresses.Remove(hwnd); handled.Remove(hwnd); return; }
+            // A click that lands while the dialog is still starting up is lost, so a reversible button is pressed again on the next scan.
+            // An irreversible button is never pressed twice, and after MaxPresses the dialog is left to the caller as a pending entry.
+            var presses = unclosedPresses.TryGetValue(hwnd, out var earlier) ? earlier + 1 : 1;
+            if (presses < MaxPresses && Reversibility.IsReversible(decision.Button)) { unclosedPresses[hwnd] = presses; handled.Remove(hwnd); return; }
+            unclosedPresses[hwnd] = MaxPresses;
+            Skipped(decision, info, "'" + decision.Button.Name + "' was pressed and the dialog stayed open", shot, dump, hwnd, pid);
         }
 
-        // A rule matched but the button could not be pressed: leave the dialog visible to the caller as a pending entry.
         private void Skipped(DialogDecision decision, DialogInfo info, string why, string? shot, string? dump, long hwnd, int pid)
         {
             Note(decision, "skipped", why);
@@ -296,29 +309,24 @@ namespace RevitHarness.DialogWatcher
             catch { return string.Empty; }
         }
 
-        private void Observe(DialogDecision decision, AutomationElement window, int pid, long hwnd, string? title)
+        private bool Observe(DialogDecision decision, int pid, long hwnd, string? title)
         {
             bool closed = false;
             string? next = null;
-            for (var i = 0; i < 10 && !closed; i++)
+            for (var waited = TimeSpan.Zero; waited < CloseWait && !closed; waited += TimeSpan.FromMilliseconds(150))
             {
                 Thread.Sleep(150);
-                closed = !IsAlive(window);
+                closed = !IsWindowVisible(new IntPtr(hwnd));
             }
             foreach (var c in (FindCandidates() ?? new List<Candidate>()).Where(c => c.Pid == pid))
             {
                 if (c.Hwnd != hwnd || (!closed && c.Title != title)) { next = c.Title; break; }
             }
             decider.LogOutcome(decision, closed, next);
+            return closed;
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
-
-        private static bool IsAlive(AutomationElement window)
-        {
-            try { return IsWindowVisible(window.Properties.NativeWindowHandle.Value); }
-            catch { return false; }
-        }
 
         private void Note(DialogDecision decision, string kind, string note)
         {

@@ -1,51 +1,61 @@
 #nullable enable
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 
 namespace RevitHarness.Addin.Ipc
 {
     /// <summary>
-    /// Handles shadow copying and byte-array loading of DLLs to avoid file locks
-    /// and assembly caching issues.
+    /// Copies a target's output directory without locking the build output.
     /// </summary>
     public class ShadowCopier
     {
-        private const int MaxGenerations = 10;
-        private const int CleanupAgeDays = 1;
+        // A shadow directory is a full copy of the target's output, so only the newest few non-live ones are kept for diagnosis.
+        private const int KeepNewest = 3;
 
         private readonly string _shadowRoot;
         private readonly Action<string> _log;
-        private readonly ConcurrentDictionary<string, Assembly> _pinnedAssemblies = new ConcurrentDictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
 
-        public ShadowCopier(Action<string> log)
+        // Every Revit process owns <shadow>\<pid>, so one process's cleanup never touches another's live copy.
+        // The root is a parameter so tests do not write into the real shadow folder.
+        public ShadowCopier(Action<string> log, string? shadowRoot = null)
         {
             _log = log;
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            _shadowRoot = Path.Combine(localAppData, "RevitHarness", "shadow");
+            if (shadowRoot != null)
+            {
+                _shadowRoot = shadowRoot;
+                return;
+            }
+            var all = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RevitHarness", "shadow");
+            _shadowRoot = Path.Combine(all, Process.GetCurrentProcess().Id.ToString());
+            SweepDeadProcesses(all, IsAlive, log);
         }
 
-        /// <summary>
-        /// Pins an assembly so that the resolver always returns it instead of searching the AppDomain.
-        /// Use this for infrastructure assemblies (e.g., RevitHarness.Contracts) to prevent conflicts
-        /// when other addins (e.g., RevitSDK AddIn Manager) load duplicate copies.
-        /// </summary>
-        public void PinAssembly(Assembly assembly)
+        private static bool IsAlive(int pid)
         {
-            var name = assembly.GetName().Name;
-            if (name != null)
+            try { Process.GetProcessById(pid); return true; }
+            catch (ArgumentException) { return false; }
+        }
+
+        /// <summary>Deletes the shadow roots of processes that no longer run. Other names are left alone.</summary>
+        internal static void SweepDeadProcesses(string allRoots, Func<int, bool> isAlive, Action<string> log)
+        {
+            if (!Directory.Exists(allRoots)) return;
+            foreach (var directory in Directory.GetDirectories(allRoots))
             {
-                _pinnedAssemblies.TryAdd(name, assembly);
-                _log($"Pinned assembly: {name} -> {assembly.FullName}");
+                if (!int.TryParse(Path.GetFileName(directory), out var pid) || isAlive(pid)) continue;
+                try { Directory.Delete(directory, recursive: true); }
+                catch (Exception ex) { log($"Failed to delete the shadow root of exited process {pid}: {ex.Message}"); }
             }
         }
 
         /// <summary>
-        /// Copies the assembly and its dependencies to a timestamped shadow directory.
+        /// Copies the whole directory that holds the assembly (every file, subdirectories included) to a
+        /// timestamped shadow directory, so the generation loads by path and Assembly.Location and relative
+        /// files beside the DLL work unmodified.
         /// </summary>
         /// <param name="assemblyPath">Path to the main assembly.</param>
         /// <returns>Path to the shadow copied assembly.</returns>
@@ -54,223 +64,36 @@ namespace RevitHarness.Addin.Ipc
             if (!File.Exists(assemblyPath))
                 throw new FileNotFoundException($"Assembly not found: {assemblyPath}", assemblyPath);
 
-            // Create timestamped directory
-            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
+            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(assemblyPath))!;
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N");
             var shadowDir = Path.Combine(_shadowRoot, timestamp);
-            Directory.CreateDirectory(shadowDir);
-
+            if (Path.GetFullPath(shadowDir).StartsWith(sourceDir.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"The target directory {sourceDir} contains the shadow folder {_shadowRoot}; build the target elsewhere.");
             _log($"Shadow copy directory: {shadowDir}");
-
-            // Copy main assembly
-            var sourceDir = Path.GetDirectoryName(assemblyPath);
-            var assemblyName = Path.GetFileName(assemblyPath);
-            var shadowAssemblyPath = Path.Combine(shadowDir, assemblyName);
-
-            File.Copy(assemblyPath, shadowAssemblyPath, overwrite: true);
-            _log($"Copied: {assemblyName}");
-
-            // Copy dependent DLLs from the same directory
-            if (sourceDir != null)
-            {
-                foreach (var file in Directory.GetFiles(sourceDir, "*.dll"))
-                {
-                    var fileName = Path.GetFileName(file);
-                    if (fileName != assemblyName)
-                    {
-                        var destPath = Path.Combine(shadowDir, fileName);
-                        File.Copy(file, destPath, overwrite: true);
-                        _log($"Copied dependency: {fileName}");
-                    }
-                }
-
-                // Copy PDB files for debugging
-                foreach (var file in Directory.GetFiles(sourceDir, "*.pdb"))
-                {
-                    var fileName = Path.GetFileName(file);
-                    var destPath = Path.Combine(shadowDir, fileName);
-                    File.Copy(file, destPath, overwrite: true);
-                    _log($"Copied debug symbols: {fileName}");
-                }
-
-                // Copy config files
-                foreach (var file in Directory.GetFiles(sourceDir, "*.config"))
-                {
-                    var fileName = Path.GetFileName(file);
-                    var destPath = Path.Combine(shadowDir, fileName);
-                    File.Copy(file, destPath, overwrite: true);
-                    _log($"Copied config: {fileName}");
-                }
-            }
-
-            return shadowAssemblyPath;
+            var count = CopyTree(sourceDir, shadowDir);
+            _log($"Copied {count} files from {sourceDir}");
+            return Path.Combine(shadowDir, Path.GetFileName(assemblyPath));
         }
 
-        /// <summary>
-        /// Loads an assembly from bytes to bypass the .NET assembly identity cache.
-        /// This allows reloading modified assemblies with the same name+version without restarting Revit.
-        /// </summary>
-        /// <param name="assemblyPath">Path to the main assembly (already shadow-copied).</param>
-        /// <returns>The loaded assembly and a resolver delegate that should be attached to AssemblyResolve.</returns>
-        public (Assembly assembly, ResolveEventHandler resolver) LoadAssemblyFromBytes(string assemblyPath)
+        private static int CopyTree(string source, string destination)
         {
-            var shadowDir = Path.GetDirectoryName(assemblyPath)!;
-            var loadedAssemblies = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
-
-            // Load main assembly from bytes
-            var assemblyBytes = File.ReadAllBytes(assemblyPath);
-            byte[]? pdbBytes = null;
-
-            // Try to load PDB for debugging support
-            var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
-            if (File.Exists(pdbPath))
+            Directory.CreateDirectory(destination);
+            var count = 0;
+            foreach (var file in Directory.GetFiles(source))
             {
-                pdbBytes = File.ReadAllBytes(pdbPath);
-                _log($"Loading with debug symbols: {Path.GetFileName(pdbPath)}");
+                var copy = Path.Combine(destination, Path.GetFileName(file));
+                File.Copy(file, copy, overwrite: true);
+                // The copy belongs to the shadow: a read-only source file must not block the net48 rewrite or the later cleanup.
+                File.SetAttributes(copy, FileAttributes.Normal);
+                count++;
             }
-
-            var assembly = pdbBytes != null
-                ? Assembly.Load(assemblyBytes, pdbBytes)
-                : Assembly.Load(assemblyBytes);
-
-            _log($"Loaded from bytes: {assembly.FullName}");
-            loadedAssemblies[assembly.GetName().Name!] = assembly;
-
-            // Eagerly preload shadow DLLs that conflict with versions in the AppDomain
-            // or Revit's app base directory. Assembly.Load(byte[]) dependencies are resolved
-            // using the host AppDomain's binding context, which probes Revit's install folder
-            // and may find older incompatible versions WITHOUT firing AssemblyResolve.
-            // Preloading ensures the CLR finds the correct version by identity match first.
-            var mainFileName = Path.GetFileName(assemblyPath);
-            foreach (var depDllPath in Directory.GetFiles(shadowDir, "*.dll"))
+            foreach (var directory in Directory.GetDirectories(source))
             {
-                var depFileName = Path.GetFileName(depDllPath);
-                if (string.Equals(depFileName, mainFileName, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                var depName = Path.GetFileNameWithoutExtension(depDllPath);
-                if (loadedAssemblies.ContainsKey(depName) || _pinnedAssemblies.ContainsKey(depName))
-                    continue;
-
-                try
-                {
-                    var shadowAsmName = AssemblyName.GetAssemblyName(depDllPath);
-                    var shadowVersion = shadowAsmName.Version;
-
-                    var existing = Array.Find(
-                        AppDomain.CurrentDomain.GetAssemblies(),
-                        a => string.Equals(a.GetName().Name, depName, StringComparison.OrdinalIgnoreCase));
-
-                    if (existing != null && Equals(existing.GetName().Version, shadowVersion))
-                        continue;
-
-                    var depBytes = File.ReadAllBytes(depDllPath);
-                    byte[]? depPdbBytes = null;
-                    var depPdbPath = Path.ChangeExtension(depDllPath, ".pdb");
-                    if (File.Exists(depPdbPath))
-                        depPdbBytes = File.ReadAllBytes(depPdbPath);
-
-                    var depAssembly = depPdbBytes != null
-                        ? Assembly.Load(depBytes, depPdbBytes)
-                        : Assembly.Load(depBytes);
-
-                    loadedAssemblies[depName] = depAssembly;
-
-                    if (existing != null)
-                        _log($"Preloaded (conflict): {depName} v{shadowVersion} (AppDomain has v{existing.GetName().Version})");
-                    else
-                        _log($"Preloaded: {depName} v{shadowVersion}");
-                }
-                catch (BadImageFormatException)
-                {
-                    // Not a .NET assembly (native DLL), skip silently
-                }
-                catch (Exception ex)
-                {
-                    _log($"Preload skipped {depName}: {ex.Message}");
-                }
+                // A junction or symlink can point back up the tree.
+                if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) continue;
+                count += CopyTree(directory, Path.Combine(destination, Path.GetFileName(directory)));
             }
-
-            // Create resolver for dependencies in the shadow directory
-            ResolveEventHandler resolver = (sender, args) =>
-            {
-                var requestedAssemblyName = new AssemblyName(args.Name);
-                var requestedName = requestedAssemblyName.Name;
-                if (requestedName == null) return null;
-
-                // Check if already loaded by us
-                if (loadedAssemblies.TryGetValue(requestedName, out var cached))
-                {
-                    _log($"Resolved from cache: {requestedName}");
-                    return cached;
-                }
-
-                // Check pinned assemblies first. These are infrastructure assemblies (e.g., RevitHarness.Contracts)
-                // that must always resolve to the Harness addin's own copy, even when other addins
-                // (e.g., RevitSDK AddIn Manager) have loaded duplicate copies into the AppDomain.
-                if (_pinnedAssemblies.TryGetValue(requestedName, out var pinned))
-                {
-                    _log($"Resolved from pinned: {requestedName} -> {pinned.FullName}");
-                    loadedAssemblies[requestedName] = pinned;
-                    return pinned;
-                }
-
-                // Check if already loaded in AppDomain.
-                // This prevents loading a duplicate from shadow bytes which would create
-                // a different type identity, causing IsAssignableFrom checks to fail.
-                // However, if the AppDomain version is OLDER than what's requested and
-                // the shadow directory has the needed version, skip to shadow loading.
-                // This handles cases where Revit (or another addin) loaded an older version
-                // (e.g., DependencyInjection.Abstractions v2.2.0) that's incompatible with
-                // the user DLL's dependencies (e.g., v9.0.6).
-                var dllPath = Path.Combine(shadowDir, requestedName + ".dll");
-                var existing = Array.Find(
-                    AppDomain.CurrentDomain.GetAssemblies(),
-                    a => string.Equals(a.GetName().Name, requestedName, StringComparison.OrdinalIgnoreCase));
-                if (existing != null)
-                {
-                    var existingVersion = existing.GetName().Version;
-                    var requestedVersion = requestedAssemblyName.Version;
-
-                    if (requestedVersion != null && existingVersion != null
-                        && existingVersion < requestedVersion
-                        && File.Exists(dllPath))
-                    {
-                        _log($"AppDomain has {requestedName} v{existingVersion} but v{requestedVersion} requested, loading from shadow");
-                    }
-                    else
-                    {
-                        _log($"Resolved from AppDomain: {requestedName} -> {existing.FullName}");
-                        loadedAssemblies[requestedName] = existing;
-                        return existing;
-                    }
-                }
-
-                // Try to load from shadow directory
-                if (File.Exists(dllPath))
-                {
-                    _log($"Resolving dependency from shadow: {requestedName}");
-                    var depBytes = File.ReadAllBytes(dllPath);
-                    byte[]? depPdbBytes = null;
-
-                    var depPdbPath = Path.ChangeExtension(dllPath, ".pdb");
-                    if (File.Exists(depPdbPath))
-                    {
-                        depPdbBytes = File.ReadAllBytes(depPdbPath);
-                    }
-
-                    var depAssembly = depPdbBytes != null
-                        ? Assembly.Load(depBytes, depPdbBytes)
-                        : Assembly.Load(depBytes);
-
-                    loadedAssemblies[requestedName] = depAssembly;
-                    _log($"Loaded dependency from bytes: {depAssembly.FullName}");
-                    return depAssembly;
-                }
-
-                return null; // Let default resolution handle it
-            };
-
-            return (assembly, resolver);
+            return count;
         }
 
         /// <summary>
@@ -288,10 +111,10 @@ namespace RevitHarness.Addin.Ipc
                     .OrderByDescending(d => d.CreationTime)
                     .ToList();
 
-                var cutoffDate = DateTime.Now.AddDays(-CleanupAgeDays);
+                var live = new HashSet<string>(Generation.LiveShadowDirectories, StringComparer.OrdinalIgnoreCase);
                 var toDelete = directories
-                    .Skip(MaxGenerations)
-                    .Where(d => d.CreationTime < cutoffDate)
+                    .Skip(KeepNewest)
+                    .Where(d => !live.Contains(d.FullName))
                     .ToList();
 
                 foreach (var dir in toDelete)

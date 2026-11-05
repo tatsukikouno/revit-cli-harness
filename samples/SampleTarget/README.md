@@ -1,6 +1,6 @@
 # Sample target hot reload
 
-Three standalone projects, outside the solution: `SampleTarget.Core` (netstandard2.0 helper),
+Four standalone projects, outside the solution: `SampleTarget.Core` (netstandard2.0 helper), `SampleTarget.Friend` (netstandard2.0 helper that reads an internal Core member through InternalsVisibleTo, so a net48 reload fails if the per-generation rename does not rewrite the attribute),
 `SampleTarget` (IExternalApplication, updater, event, ribbon), and `SampleTarget.Probe`
 (IHarnessCommand with no reference to the target or Core). Do not install a SampleTarget `.addin`;
 load it through the harness. Revit supplies the API assemblies and Newtonsoft.Json at runtime.
@@ -27,16 +27,15 @@ revit-harness reload --dll 'C:\path\SampleTarget.dll' --type SampleTarget.App
 revit-harness target-status
 revit-harness run-command --dll 'C:\probe\SampleTarget.Probe.dll' --type SampleTarget.Probe.ProbeCommand --args '{"op":"state"}'
 revit-harness run-command --dll 'C:\probe\SampleTarget.Probe.dll' --type SampleTarget.Probe.ProbeCommand --args '{"op":"edit"}'
-revit-harness run-command --dll 'C:\probe\SampleTarget.Probe.dll' --type SampleTarget.Probe.ProbeCommand --args '{"op":"click"}'
 revit-harness run-command --dll 'C:\probe\SampleTarget.Probe.dll' --type SampleTarget.Probe.ProbeCommand --args '{"op":"ribbon"}'
 revit-harness unload
 ```
 
-Start with BuildTag=v1, exercise edit/click, rebuild target and Core with v2 to the same output,
+Start with BuildTag=v1, exercise edit and the ribbon button, rebuild target and Core with v2 to the same output,
 and reload again. `state` returns parsed records from
 `%LOCALAPPDATA%\RevitHarness\sample-target\log.jsonl` and `updaterRegistered`.
 Expect v1 shutdown before v2 startup; later updater/event/ribbon records must carry
-`tag=v2, coreTag=v2`. `click` posts asynchronously: query `state` on a later call.
+`tag=v2, coreTag=v2`. Click the Hello button on the SampleTarget ribbon tab with a mouse (the Revit home screen has no ribbon, so open a project first) and read `state` afterwards for a `ribbon` record; a command posted with `PostCommand` from the probe did not reach the button in the real-machine runs, so the probe has no click op.
 `ribbon` uses only public Revit API and should show one Hello button with the new text.
 `edit` adds a Level to the active document; with no active document it creates and closes
 an unsaved metric project. `clear-log` deletes the log. After unload, the updater must be

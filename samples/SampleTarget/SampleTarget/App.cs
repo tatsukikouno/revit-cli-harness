@@ -16,7 +16,7 @@ namespace SampleTarget
             .Single(a => a.Key == "BuildTag").Value ?? "";
         internal static readonly string Features = typeof(App).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
             .Single(a => a.Key == "Features").Value ?? "";
-        internal static void Write(string kind) => SampleLog.Write(kind, Tag, BuildInfo.Tag);
+        internal static void Write(string kind) => SampleLog.Write(kind, Tag, SampleTarget.Friend.FriendInfo.CoreTag);
     }
 
     public sealed class App : IExternalApplication

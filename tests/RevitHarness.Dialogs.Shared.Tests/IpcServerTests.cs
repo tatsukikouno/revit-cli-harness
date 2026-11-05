@@ -127,5 +127,27 @@ namespace RevitHarness.Dialogs.Shared.Tests
             var response = await Receive(client).WaitAsync(TimeSpan.FromSeconds(5));
             Assert.True(response.Ok);
         }
+
+        [Fact]
+        public async Task SecondRequestOnTheSameConnectionIsAnsweredAfterTheFirst()
+        {
+            var pipe = "RevitHarnessTest" + Guid.NewGuid().ToString("N");
+            using var server = new IpcServer(_ => { }, pipe);
+            server.Start();
+
+            using var client = await Connect(pipe);
+            await Send(client, "first");
+            await Task.Delay(200);
+            Assert.True(server.TryDequeueRequest(out var one));
+            one.Callback(IpcResponse.Success(one.Request.Id, new { }, 0));
+            Assert.True((await Receive(client).WaitAsync(TimeSpan.FromSeconds(5))).Ok);
+
+            await Send(client, "second");
+            await Task.Delay(200);
+            Assert.True(server.TryDequeueRequest(out var two));
+            Assert.Equal("second", two.Request.Op);
+            two.Callback(IpcResponse.Success(two.Request.Id, new { }, 0));
+            Assert.Equal("second", (await Receive(client).WaitAsync(TimeSpan.FromSeconds(5))).Id);
+        }
     }
 }

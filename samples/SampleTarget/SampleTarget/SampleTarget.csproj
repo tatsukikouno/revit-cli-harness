@@ -24,6 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="../../../src/RevitHarness.Contracts/RevitHarness.Contracts.csproj" />
     <ProjectReference Include="../SampleTarget.Core/SampleTarget.Core.csproj" />
+    <ProjectReference Include="../SampleTarget.Friend/SampleTarget.Friend.csproj" />
     <AssemblyMetadata Include="BuildTag" Value="$(BuildTag)" />
     <AssemblyMetadata Include="Features" Value="$(Features)" />
   </ItemGroup>

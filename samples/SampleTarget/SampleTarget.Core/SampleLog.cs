@@ -5,12 +5,11 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 
-[assembly: InternalsVisibleTo("SampleTarget")]
+[assembly: InternalsVisibleTo("SampleTarget.Friend")]
 
 namespace SampleTarget.Core
 {
-    // Internal on purpose: the target reads it through InternalsVisibleTo, which only works while the
-    // per-generation rename of the Core assembly also rewrites that attribute.
+    // Internal on purpose: SampleTarget.Friend reads it through InternalsVisibleTo.
     internal static class BuildInfo
     {
         internal static string Tag => typeof(BuildInfo).Assembly

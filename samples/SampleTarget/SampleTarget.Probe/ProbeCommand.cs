@@ -46,9 +46,6 @@ namespace SampleTarget.Probe
                     {
                         if (active == null) doc.Close(false);
                     }
-                case "click":
-                    uiapp.PostCommand(RevitCommandId.LookupCommandId("CustomCtrl_%CustomCtrl_%SampleTarget%Sample%Hello"));
-                    return "{\"posted\":true}";
                 case "ribbon":
                     return JsonConvert.SerializeObject(new { panels = uiapp.GetRibbonPanels("SampleTarget")
                         .Select(p => new { name = p.Name, items = p.GetItems().Select(i => new { name = i.Name, text = i.ItemText }) }) });
@@ -73,7 +70,7 @@ namespace SampleTarget.Probe
                             .Select(a => new { name = a.GetName().Name, context = ContextOf(a) })
                     });
                 default:
-                    throw new ArgumentException("op must be state, clear-log, edit, click, ribbon, or alc.");
+                    throw new ArgumentException("op must be state, clear-log, edit, ribbon, or alc.");
             }
         }
 

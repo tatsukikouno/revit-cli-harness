@@ -162,9 +162,12 @@ namespace RevitHarness.Addin.Ipc
         {
             try
             {
+                var lengthBuffer = new byte[4];
+                Task<int>? carriedRead = null;
                 while (pipe.IsConnected && !ct.IsCancellationRequested)
                 {
-                    var request = await ReadMessageAsync(pipe, ct);
+                    var request = await ReadMessageAsync(pipe, lengthBuffer, carriedRead, ct);
+                    carriedRead = null;
                     if (request == null)
                     {
                         _log("Client disconnected or invalid message");
@@ -191,19 +194,20 @@ namespace RevitHarness.Addin.Ipc
                     using var abandoned = new CancellationTokenSource();
                     _requestQueue.Enqueue(new QueuedRequest(request, response => tcs.TrySetResult(response), abandoned.Token));
 
-                    // The client sends nothing while it waits, so a finished read means it closed the pipe.
-                    using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    var disconnect = pipe.ReadAsync(new byte[1], 0, 1, waitCts.Token);
-                    var timeout = Task.Delay(timeoutMs, waitCts.Token);
+                    // A pipe read cannot be cancelled on .NET Framework, so the read that watches for a closed pipe
+                    // is the first read of the next message and is carried over to the next loop iteration.
+                    var disconnect = pipe.ReadAsync(lengthBuffer, 0, 4, ct);
+                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    var timeout = Task.Delay(timeoutMs, timeoutCts.Token);
                     var first = await Task.WhenAny(tcs.Task, disconnect, timeout);
-                    waitCts.Cancel();
-                    try { await disconnect; } catch (OperationCanceledException) { } catch (IOException) { }
+                    timeoutCts.Cancel();
 
                     if (first != tcs.Task)
                     {
                         abandoned.Cancel();
                         if (first == timeout)
                         {
+                            carriedRead = disconnect;
                             await WriteMessageAsync(pipe, IpcResponse.Failure(request.Id, ErrorCodes.Timeout, "Request timed out", timeoutMs), ct);
                             continue;
                         }
@@ -211,6 +215,7 @@ namespace RevitHarness.Addin.Ipc
                         break;
                     }
 
+                    carriedRead = disconnect;
                     var response = tcs.Task.Result;
                     _log($"Sending response: ok={response.Ok}, id={response.Id}");
                     await WriteMessageAsync(pipe, response, ct);
@@ -226,15 +231,19 @@ namespace RevitHarness.Addin.Ipc
             }
         }
 
-        private async Task<IpcRequest?> ReadMessageAsync(Stream stream, CancellationToken ct)
+        private async Task<IpcRequest?> ReadMessageAsync(Stream stream, byte[] lengthBuffer, Task<int>? firstRead, CancellationToken ct)
         {
-            // Read length prefix (int32 little endian)
-            var lengthBuffer = new byte[4];
-            var bytesRead = await stream.ReadAsync(lengthBuffer, 0, 4, ct);
+            // Read length prefix (int32 little endian); firstRead is a read into lengthBuffer that is already in flight
+            var bytesRead = firstRead != null ? await firstRead : await stream.ReadAsync(lengthBuffer, 0, 4, ct);
             if (bytesRead == 0)
                 return null;
-            if (bytesRead != 4)
-                throw new InvalidDataException("Failed to read message length");
+            while (bytesRead < 4)
+            {
+                var more = await stream.ReadAsync(lengthBuffer, bytesRead, 4 - bytesRead, ct);
+                if (more == 0)
+                    throw new InvalidDataException("Failed to read message length");
+                bytesRead += more;
+            }
 
             var length = BitConverter.ToInt32(lengthBuffer, 0);
             if (length <= 0 || length > MaxMessageSize)

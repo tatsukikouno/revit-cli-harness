@@ -388,7 +388,7 @@ revit-cli-harness/
 %LOCALAPPDATA%\RevitHarness\shadow\{timestamp}\
 ```
 
-Each directory is a full copy of the target's output directory. Old directories are automatically cleaned up (max 10 generations, deleted after 1 day; directories of live generations are kept).
+Each directory is a full copy of the target's output directory. After each reload or unload, directories of generations that are no longer live are deleted, except the newest three.
 
 ## License
 

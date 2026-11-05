@@ -12,8 +12,8 @@ namespace RevitHarness.Addin.Ipc
     /// </summary>
     public class ShadowCopier
     {
-        private const int MaxGenerations = 10;
-        private const int CleanupAgeDays = 1;
+        // A shadow directory is a full copy of the target's output, so only the newest few non-live ones are kept for diagnosis.
+        private const int KeepNewest = 3;
 
         private readonly string _shadowRoot;
         private readonly Action<string> _log;
@@ -53,7 +53,10 @@ namespace RevitHarness.Addin.Ipc
             var count = 0;
             foreach (var file in Directory.GetFiles(source))
             {
-                File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), overwrite: true);
+                var copy = Path.Combine(destination, Path.GetFileName(file));
+                File.Copy(file, copy, overwrite: true);
+                // The copy belongs to the shadow: a read-only source file must not block the net48 rewrite or the later cleanup.
+                File.SetAttributes(copy, FileAttributes.Normal);
                 count++;
             }
             foreach (var directory in Directory.GetDirectories(source))
@@ -77,10 +80,9 @@ namespace RevitHarness.Addin.Ipc
                     .ToList();
 
                 var live = new HashSet<string>(Generation.LiveShadowDirectories, StringComparer.OrdinalIgnoreCase);
-                var cutoffDate = DateTime.Now.AddDays(-CleanupAgeDays);
                 var toDelete = directories
-                    .Skip(MaxGenerations)
-                    .Where(d => d.CreationTime < cutoffDate && !live.Contains(d.FullName))
+                    .Skip(KeepNewest)
+                    .Where(d => !live.Contains(d.FullName))
                     .ToList();
 
                 foreach (var dir in toDelete)

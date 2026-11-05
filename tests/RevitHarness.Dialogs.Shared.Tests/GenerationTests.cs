@@ -372,6 +372,24 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.NotEqual(Path.GetDirectoryName(shadowed), dir);
         }
 
+        [Fact]
+        public void CleanupKeepsTheNewestThreeAndEveryLiveGenerationAndRemovesTheRest()
+        {
+            var dir = Path.Combine(_root, "cl-" + _built++);
+            Directory.CreateDirectory(dir);
+            Compile("FxClean", "namespace Fx { public static class Probe { } }", dir);
+            File.SetAttributes(Path.Combine(dir, "FxClean.dll"), FileAttributes.ReadOnly);
+            var copier = new ShadowCopier(_ => { }, Path.Combine(_root, "shadow-cl"));
+
+            var paths = Enumerable.Range(0, 6).Select(_ => copier.CopyToShadow(Path.Combine(dir, "FxClean.dll"))).ToArray();
+            using var live = Load(paths[0]);
+            copier.Cleanup();
+
+            var left = Directory.GetDirectories(Path.Combine(_root, "shadow-cl")).Select(d => Path.Combine(d, "FxClean.dll")).ToHashSet();
+            Assert.Contains(paths[0], left);
+            Assert.Equal(4, left.Count);
+        }
+
         private static class NoWpfFields { }
 
         private static class FakeWpfHelper

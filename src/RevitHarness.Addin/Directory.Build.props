@@ -1,12 +1,4 @@
 <Project>
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)..\'))" />
-  <!-- One intermediate directory per Revit year. The years target different frameworks, and a shared
-       obj\project.assets.json is read stale when two years build in one MSBuild process (as
-       RevitHarness.Cli does when it bundles all years). -->
-  <PropertyGroup>
-    <BaseIntermediateOutputPath Condition="$(Configuration.EndsWith('R25'))">obj\R25\</BaseIntermediateOutputPath>
-    <BaseIntermediateOutputPath Condition="$(Configuration.EndsWith('R26'))">obj\R26\</BaseIntermediateOutputPath>
-    <BaseIntermediateOutputPath Condition="$(Configuration.EndsWith('R27'))">obj\R27\</BaseIntermediateOutputPath>
-    <BaseIntermediateOutputPath Condition="'$(BaseIntermediateOutputPath)' == ''">obj\R24\</BaseIntermediateOutputPath>
-  </PropertyGroup>
+  <Import Project="..\RevitYear.props" />
 </Project>

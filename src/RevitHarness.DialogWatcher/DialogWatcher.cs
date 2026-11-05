@@ -26,6 +26,8 @@ namespace RevitHarness.DialogWatcher
         private readonly Dictionary<long, string> handled = new Dictionary<long, string>();
         private readonly Dictionary<long, int> unclosedPresses = new Dictionary<long, int>();
         private const int MaxPresses = 3;
+        // Revit can take seconds to tear a dialog down while it loads add-ins. Returns as soon as the window is gone, so a wait this long costs nothing for a dialog that closes at once.
+        private static readonly TimeSpan CloseWait = TimeSpan.FromSeconds(6);
         private readonly Dictionary<int, string> processNames = new Dictionary<int, string>();
 
         public int Processed { get; private set; }
@@ -283,7 +285,9 @@ namespace RevitHarness.DialogWatcher
             var error = InvokeGuard.Run(() => target.Patterns.Invoke.Pattern.Invoke(), InvokeTimeout);
             if (error != null) { Skipped(decision, info, error, shot, dump, hwnd, pid); return; }
             pending.SupersedeApiEntries(pid, "watcher " + decision.Record.LogId);
-            if (Observe(decision, pid, hwnd, info.Title)) { unclosedPresses.Remove(hwnd); return; }
+            // The window is gone, so its handle may be reused at once by the next dialog (Revit shows several in a row,
+            // often with identical text). Forgetting it here keeps that successor from matching the old signature.
+            if (Observe(decision, pid, hwnd, info.Title)) { unclosedPresses.Remove(hwnd); handled.Remove(hwnd); return; }
             // A click that lands while the dialog is still starting up is lost, so a reversible button is pressed again on the next scan.
             // An irreversible button is never pressed twice, and after MaxPresses the dialog is left to the caller as a pending entry.
             var presses = unclosedPresses.TryGetValue(hwnd, out var earlier) ? earlier + 1 : 1;
@@ -309,7 +313,7 @@ namespace RevitHarness.DialogWatcher
         {
             bool closed = false;
             string? next = null;
-            for (var i = 0; i < 10 && !closed; i++)
+            for (var waited = TimeSpan.Zero; waited < CloseWait && !closed; waited += TimeSpan.FromMilliseconds(150))
             {
                 Thread.Sleep(150);
                 closed = !IsWindowVisible(new IntPtr(hwnd));

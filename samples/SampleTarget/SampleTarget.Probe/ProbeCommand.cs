@@ -48,7 +48,7 @@ namespace SampleTarget.Probe
                     }
                 case "ribbon":
                     return JsonConvert.SerializeObject(new { panels = uiapp.GetRibbonPanels("SampleTarget")
-                        .Select(p => new { name = p.Name, items = p.GetItems().Select(i => new { name = i.Name, text = i.ItemText }) }) });
+                        .Select(p => new { name = p.Name, items = p.GetItems().Select(i => new { name = i.Name, text = i.ItemText, children = i is SplitButton sp ? sp.GetItems().Select(c => c.Name).ToArray() : i is PulldownButton pd ? pd.GetItems().Select(c => c.Name).ToArray() : null }) }) });
                 case "open-doc":
                     if (uiapp.ActiveUIDocument != null) return JsonConvert.SerializeObject(new { title = uiapp.ActiveUIDocument.Document.Title });
                     var temp = Path.Combine(Path.GetTempPath(), "sample-target-probe.rvt");

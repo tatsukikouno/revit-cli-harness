@@ -19,7 +19,6 @@ namespace RevitHarness.Cli
         // Exit codes
         private const int ExitSuccess = 0;
         private const int ExitFailure = 1;
-        private const int ExitConnectionError = 2;
 
         private static async Task<int> Main(string[] args)
         {
@@ -48,6 +47,9 @@ namespace RevitHarness.Cli
 
                     case "status":
                         return RunStatus(args);
+
+                    case "prepare-target":
+                        return RunPrepareTarget(args);
 
                     // IPC commands
                     case "ping":
@@ -107,38 +109,34 @@ namespace RevitHarness.Cli
                         return ExitFailure;
                 }
             }
-            catch (TimeoutException ex)
-            {
-                Console.Error.WriteLine($"Connection error: {ex.Message}");
-                var errorResponse = new IpcResponse
-                {
-                    Id = string.Empty,
-                    Ok = false,
-                    Error = new IpcError
-                    {
-                        Code = "HARNESS_NOT_READY",
-                        Message = ex.Message
-                    }
-                };
-                Console.WriteLine(JsonConvert.SerializeObject(errorResponse, Formatting.Indented));
-                return ExitConnectionError;
-            }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
-                var errorResponse = new IpcResponse
+                var failure = HarnessFailure.FromException(ex);
+                if (failure != null)
                 {
-                    Id = string.Empty,
-                    Ok = false,
-                    Error = new IpcError
-                    {
-                        Code = "INTERNAL_ERROR",
-                        Message = ex.Message
-                    }
-                };
-                Console.WriteLine(JsonConvert.SerializeObject(errorResponse, Formatting.Indented));
-                return ExitConnectionError;
+                    var report = HarnessFailure.Describe(failure, OpenPendingDialogIds());
+                    return ReportFailure(report.ExitCode, report.Token, report.Message);
+                }
+                return ReportFailure(ExitFailure, "INTERNAL_ERROR", ex.Message);
             }
+        }
+
+        private static IReadOnlyCollection<string> OpenPendingDialogIds()
+        {
+            try { return new RevitHarness.Dialogs.PendingStore().List(openOnly: true).Select(p => p.Id).ToArray(); }
+            catch (Exception) { return Array.Empty<string>(); }
+        }
+
+        private static int ReportFailure(int exitCode, string token, string message)
+        {
+            Console.Error.WriteLine($"revit-harness: {token}: {message}");
+            Console.WriteLine(JsonConvert.SerializeObject(new IpcResponse
+            {
+                Id = string.Empty,
+                Ok = false,
+                Error = new IpcError { Code = token, Message = message }
+            }, Formatting.Indented));
+            return exitCode;
         }
 
         private static void PrintVersion()
@@ -155,7 +153,14 @@ Installation Commands:
   install                       Install the add-in to Revit, the dialog watcher to
                                 %LOCALAPPDATA%\RevitHarness\watcher and the SKILLs
     --revit-version <year>      Revit version (e.g., 2024, 2025, 2026, 2027) (required)
+    --vendor-id <id>            VendorId written into the installed RevitHarness.addin. Extensible
+                                Storage schemas gated by a vendor id match it. Kept on reinstall;
+                                restart Revit when it changes (optional)
     --skills-dir <path>         SKILL folder (optional, default: %USERPROFILE%\.claude\skills)
+  prepare-target                Park a target add-in's own .addin (rename to .addin.parked) so only the
+                                harness loader is active. Never deletes.
+    --addin <path>              The target's .addin file (required)
+    --restore                   Put a parked .addin back
   uninstall                     Remove the add-in; the last uninstall also removes the watcher
                                 and SKILLs (the dialogs data folder is kept)
     --revit-version <year>      Revit version (e.g., 2024, 2025, 2026, 2027) (required)
@@ -207,10 +212,13 @@ IPC Commands:
     --filter <name>             Filter members by name (substring match)
     --timeout <ms>              Timeout in milliseconds (optional, default: 300000)
 
-Exit codes:
+Exit codes (stderr starts with 'revit-harness: <TOKEN>: <message>' for 2-5):
   0 = Success (ok=true, and passed=true for run-tests)
-  1 = Failure (ok=false or passed=false)
-  2 = Connection/infrastructure error");
+  1 = Failure (ok=false or passed=false, or a CLI error)
+  2 = CONNECTION_FAILED   Revit not running, harness not loaded, or the pipe broke
+  3 = HARNESS_NOT_READY   the add-in is still starting; retry
+  4 = TIMEOUT             Revit did not answer in time
+  5 = DIALOG_BLOCKED      no answer and a dialog is pending (dialog-pending / dialog-decide)");
         }
 
         #region Installation Commands
@@ -219,6 +227,7 @@ Exit codes:
         {
             int? revitVersion = null;
             string? skillsDir = null;
+            string? vendorId = null;
 
             for (int i = 1; i < args.Length; i++)
             {
@@ -227,6 +236,14 @@ Exit codes:
                     case "--revit-version":
                         if (i + 1 < args.Length && int.TryParse(args[++i], out var v))
                             revitVersion = v;
+                        break;
+                    case "--vendor-id":
+                        if (i + 1 >= args.Length)
+                        {
+                            Console.Error.WriteLine("Error: --vendor-id needs a value");
+                            return ExitFailure;
+                        }
+                        vendorId = args[++i];
                         break;
                     case "--skills-dir":
                         if (i + 1 >= args.Length)
@@ -247,12 +264,13 @@ Exit codes:
 
             Console.WriteLine($"Installing RevitHarness for Revit {revitVersion}...");
 
-            var result = new RevitInstaller(InstallLayout.Create(skillsDir)).Install(revitVersion.Value);
+            var result = new RevitInstaller(InstallLayout.Create(skillsDir)).Install(revitVersion.Value, vendorId);
 
             if (result.Success)
             {
                 Console.WriteLine(result.Message);
                 Console.WriteLine($"Installation folder: {result.InstallationFolder}");
+                Console.WriteLine($"VendorId: {result.VendorId} (Revit reads it at startup; restart Revit if it changed)");
                 if (result.InstalledFiles.Count > 0)
                 {
                     Console.WriteLine("Installed files:");
@@ -324,6 +342,33 @@ Exit codes:
             }
         }
 
+        private static int RunPrepareTarget(string[] args)
+        {
+            string? addin = null;
+            var restore = false;
+            for (int i = 1; i < args.Length; i++)
+            {
+                switch (args[i].ToLowerInvariant())
+                {
+                    case "--addin":
+                        if (i + 1 < args.Length) addin = Path.GetFullPath(args[++i]);
+                        break;
+                    case "--restore":
+                        restore = true;
+                        break;
+                }
+            }
+            if (addin == null)
+            {
+                Console.Error.WriteLine("Error: --addin <path to the target's .addin> is required");
+                return ExitFailure;
+            }
+
+            var result = restore ? AddinParker.Restore(addin) : AddinParker.Park(addin);
+            (result.Ok ? Console.Out : Console.Error).WriteLine(result.Message);
+            return result.Ok ? ExitSuccess : ExitFailure;
+        }
+
         private static int RunStatus(string[] args)
         {
             int? revitVersion = null;
@@ -384,6 +429,7 @@ Exit codes:
                 {
                     Console.WriteLine($"  Installation: {status.InstallationFolder}");
                     Console.WriteLine($"  Files: {string.Join(", ", status.InstalledFiles)}");
+                    Console.WriteLine($"  VendorId: {status.VendorId}");
                 }
             }
             else
@@ -495,7 +541,8 @@ Exit codes:
                 Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(Print(false,
                     "the DialogWatcher did not apply the decision in time (is it running? revit-harness dialog-watcher start); request withdrawn",
                     store.Get(id!)), DialogJson));
-                return ExitConnectionError;
+                Console.Error.WriteLine("revit-harness: TIMEOUT: the DialogWatcher did not apply the decision in time");
+                return HarnessFailure.TimeoutExit;
             }
 
             var ok = result.Status == RevitHarness.Dialogs.PendingStatus.Resolved;

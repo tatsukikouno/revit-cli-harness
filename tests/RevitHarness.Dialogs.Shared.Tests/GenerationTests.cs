@@ -42,9 +42,12 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.True(result.Success, string.Join("\n", result.Diagnostics));
         }
 
+        private int _built;
+
         private string BuildTarget(string tag)
         {
-            var dir = Path.Combine(_root, tag);
+            // Generation.Load maps the files it is given, so every build is its own directory.
+            var dir = Path.Combine(_root, tag + "-" + _built++);
             Directory.CreateDirectory(dir);
             Compile("FxHelper", "namespace Fx { public static class Helper { public static string Tag => \"H" + tag + "\"; } }", dir);
             Compile(
@@ -59,7 +62,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
             (string)generation.Assembly.GetType("Fx.Probe")!.GetProperty("Tag")!.GetValue(null)!;
 
         private static Generation Load(string path) =>
-            Generation.Load(path, Array.Empty<Assembly>(), _ => { });
+            Generation.Load(path, Array.Empty<Assembly>(), null, _ => { });
 
         [Fact]
         public void ReloadSeesChangedTargetAndOwnHelperWhileOldGenerationIsAlive()
@@ -75,7 +78,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public void EntryAssemblyIsOwnedEvenWhenAResidentAssemblyHasTheSameName()
         {
             using var resident = Load(BuildTarget("v1"));
-            using var other = Generation.Load(BuildTarget("v2"), resident.Assemblies, _ => { });
+            using var other = Generation.Load(BuildTarget("v2"), resident.Assemblies, null, _ => { });
 
             Assert.NotSame(resident.Assembly, other.Assembly);
             Assert.Equal("Mv2-Hv2", Tag(other));
@@ -189,8 +192,9 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public void RenameChangesHelperNameAndItsReferencesButKeepsTypesWorking()
         {
             var names = new Dictionary<string, string> { ["FxHelper"] = "FxHelper_g9" };
-            var main = AssemblyRenamer.Rename(File.ReadAllBytes(BuildTarget("v1")), null, names).Dll;
-            var helper = AssemblyRenamer.Rename(File.ReadAllBytes(Path.Combine(_root, "v1", "FxHelper.dll")), null, names).Dll;
+            var target = BuildTarget("v1");
+            var main = AssemblyRenamer.Rename(File.ReadAllBytes(target), null, names).Dll;
+            var helper = AssemblyRenamer.Rename(File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(target)!, "FxHelper.dll")), null, names).Dll;
 
             Assert.Equal("FxHelper_g9", AssemblyName.GetAssemblyName(WriteTemp(helper, "h.dll")).Name);
             using var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(main));
@@ -262,6 +266,110 @@ namespace RevitHarness.Dialogs.Shared.Tests
             var cache = Assert.Single(caches);
             Assert.Same(FakeWpfHelper._assemblies, cache.Entries);
             Assert.Same(FakeWpfHelper.syncObject, cache.Gate);
+        }
+
+        // A Revit-like layout: "Revit" holds FxRevitLike.dll, and the target dir carries its own (CopyLocal) copy
+        // of it next to a helper that references it.
+        private (string Target, string RevitDir, string Lib) BuildRevitLikeTarget()
+        {
+            // Assemblies loaded by name stay in the test host, so every layout gets its own library name.
+            var lib = "FxRevitLike" + Guid.NewGuid().ToString("N");
+            var revitDir = Path.Combine(_root, "revit-" + _built++);
+            Directory.CreateDirectory(revitDir);
+            Compile(lib, "namespace Fx { public class ApiType { public static string Where => \"revit\"; } }", revitDir);
+
+            var dir = Path.Combine(_root, "rl-" + _built++);
+            Directory.CreateDirectory(dir);
+            File.Copy(Path.Combine(revitDir, lib + ".dll"), Path.Combine(dir, lib + ".dll"));
+            Compile("FxUsesApi", "namespace Fx { public static class Uses { public static System.Type ApiType => typeof(ApiType); } }", dir,
+                Path.Combine(dir, lib + ".dll"));
+            Compile("FxApiTarget", "namespace Fx { public static class Probe { public static System.Type ApiType => Uses.ApiType; } }", dir,
+                Path.Combine(dir, lib + ".dll"), Path.Combine(dir, "FxUsesApi.dll"));
+            return (Path.Combine(dir, "FxApiTarget.dll"), revitDir, lib);
+        }
+
+        [Fact]
+        public void ResolverNeverOwnsAFileThatSitsInTheRevitDirectoryEvenWhenNothingHasLoadedItYet()
+        {
+            var (target, revitDir, lib) = BuildRevitLikeTarget();
+
+            var plan = ReferenceResolver.Plan(target, Array.Empty<Assembly>(), revitDir, Array.Empty<Assembly>(), _ => false, _ => { });
+
+            Assert.DoesNotContain(lib, plan.Owned.Keys);
+            Assert.Equal(Path.Combine(revitDir, lib + ".dll"), plan.RevitFiles[lib]);
+            Assert.Contains("FxUsesApi", plan.Owned.Keys);
+            Assert.Contains("FxApiTarget", plan.Owned.Keys);
+        }
+
+        [Fact]
+        public void ResolverSharesTheLoadedCopyOfARevitFileRegardlessOfVersion()
+        {
+            var (target, revitDir, lib) = BuildRevitLikeTarget();
+            var loaded = Assembly.LoadFile(Path.Combine(revitDir, lib + ".dll"));
+
+            var plan = ReferenceResolver.Plan(target, Array.Empty<Assembly>(), revitDir, new[] { loaded }, _ => false, _ => { });
+
+            Assert.Same(loaded, plan.Hosts[lib]);
+            Assert.Empty(plan.RevitFiles);
+        }
+
+        [Fact]
+        public void ResolverSharesAHostAssemblyThatIsNotBesideTheTarget()
+        {
+            var (target, _, lib) = BuildRevitLikeTarget();
+
+            var plan = ReferenceResolver.Plan(target, new[] { typeof(Uri).Assembly }, null, Array.Empty<Assembly>(), _ => false, _ => { });
+
+            Assert.Same(typeof(Uri).Assembly, plan.Hosts[typeof(Uri).Assembly.GetName().Name!]);
+        }
+
+        [Fact]
+        public void ResolverSharesAnotherAddinsCopyOnlyWhenItIsAtLeastAsNewAndWasNeverOwned()
+        {
+            var (target, _, lib) = BuildRevitLikeTarget();
+            var shipped = AssemblyName.GetAssemblyName(Path.Combine(Path.GetDirectoryName(target)!, lib + ".dll")).Version!;
+            var loaded = Assembly.LoadFile(Path.Combine(Path.GetDirectoryName(target)!, lib + ".dll"));
+            Assert.True(loaded.GetName().Version >= shipped);
+
+            var shared = ReferenceResolver.Plan(target, Array.Empty<Assembly>(), null, new[] { loaded }, _ => false, _ => { });
+            var neverShared = ReferenceResolver.Plan(target, Array.Empty<Assembly>(), null, new[] { loaded }, name => name == lib, _ => { });
+
+            Assert.Same(loaded, shared.Hosts[lib]);
+            Assert.Contains(lib, neverShared.Owned.Keys);
+        }
+
+        [Fact]
+        public void GenerationBindsHelpersToTheRevitCopyNotTheTargetCopy()
+        {
+            var (target, revitDir, lib) = BuildRevitLikeTarget();
+
+            using var generation = Generation.Load(target, Array.Empty<Assembly>(), revitDir, _ => { });
+            var api = (Type)generation.Assembly.GetType("Fx.Probe")!.GetProperty("ApiType")!.GetValue(null)!;
+
+            Assert.Equal(Path.Combine(revitDir, lib + ".dll"), api.Assembly.Location);
+            Assert.DoesNotContain(generation.Assemblies, a => a.GetName().Name == lib);
+        }
+
+        [Fact]
+        public void ShadowCopyIsTheWholeDirectoryAndTheGenerationSeesItsOwnLocation()
+        {
+            var dir = Path.Combine(_root, "full-" + _built++);
+            Directory.CreateDirectory(Path.Combine(dir, "data"));
+            File.WriteAllText(Path.Combine(dir, "settings.json"), "{\"a\":1}");
+            File.WriteAllText(Path.Combine(dir, "data", "table.csv"), "x,y");
+            Compile(
+                "FxLocator",
+                "namespace Fx { public static class Probe { public static string Read(string name) => System.IO.File.ReadAllText(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(Probe).Assembly.Location), name)); } }",
+                dir);
+
+            var shadowed = new ShadowCopier(_ => { }, Path.Combine(_root, "shadow")).CopyToShadow(Path.Combine(dir, "FxLocator.dll"));
+            using var generation = Load(shadowed);
+            var read = generation.Assembly.GetType("Fx.Probe")!.GetMethod("Read")!;
+
+            Assert.Equal(shadowed, generation.Assembly.Location);
+            Assert.Equal("{\"a\":1}", (string)read.Invoke(null, new object[] { "settings.json" })!);
+            Assert.Equal("x,y", (string)read.Invoke(null, new object[] { Path.Combine("data", "table.csv") })!);
+            Assert.NotEqual(Path.GetDirectoryName(shadowed), dir);
         }
 
         private static class NoWpfFields { }

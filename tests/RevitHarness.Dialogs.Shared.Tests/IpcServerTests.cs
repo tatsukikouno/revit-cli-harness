@@ -60,6 +60,29 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
+        public async Task StartingServerAnswersHarnessNotReadyExceptForDirectRequests()
+        {
+            var pipe = "RevitHarnessTest" + Guid.NewGuid().ToString("N");
+            using var server = new IpcServer(_ => { }, pipe)
+            {
+                DirectHandler = r => r.Op == "direct" ? IpcResponse.Success(r.Id, new { }, 0) : null,
+                Ready = false
+            };
+            server.Start();
+            using var client = await Connect(pipe);
+
+            await Send(client, "ping");
+            var notReady = await Receive(client).WaitAsync(TimeSpan.FromSeconds(5));
+            await Send(client, "direct");
+            var direct = await Receive(client).WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.False(notReady.Ok);
+            Assert.Equal("HARNESS_NOT_READY", notReady.Error!.Code);
+            Assert.True(direct.Ok);
+            Assert.Equal(0, server.PendingRequestCount);
+        }
+
+        [Fact]
         public async Task ExceptionInDirectHandlerBecomesAnErrorResponseNotADroppedPipe()
         {
             var pipe = "RevitHarnessTest" + Guid.NewGuid().ToString("N");

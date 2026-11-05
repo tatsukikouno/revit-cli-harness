@@ -40,6 +40,7 @@ namespace RevitHarness.Addin
                 // Create IPC server
                 _server = new IpcServer(Log);
                 _server.DirectHandler = DialogIpcHandler.TryHandle;
+                _server.Ready = false;
 
                 // Create event handler
                 _eventHandler = new HarnessEventHandler(_server, Log);
@@ -84,6 +85,7 @@ namespace RevitHarness.Addin
                 }
 
                 _targetHost.RestoreSaved();
+                _server.Ready = true;
 
                 Log("RevitHarness add-in started successfully");
                 return Result.Succeeded;

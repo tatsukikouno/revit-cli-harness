@@ -35,9 +35,10 @@ namespace RevitHarness.Cli
             {
                 await _pipe.ConnectAsync(timeoutMs, cts.Token);
             }
-            catch (OperationCanceledException)
+            catch (Exception ex) when (ex is OperationCanceledException || ex is TimeoutException)
             {
-                throw new TimeoutException($"Connection to Revit harness timed out after {timeoutMs}ms");
+                throw new HarnessFailureException(FailureKind.ConnectionFailed,
+                    $"No RevitHarness pipe within {timeoutMs}ms. Revit is not running, or the harness add-in is not installed or failed to load.", ex);
             }
         }
 
@@ -50,14 +51,16 @@ namespace RevitHarness.Cli
                 throw new InvalidOperationException("Not connected to Revit harness");
 
             using var cts = new CancellationTokenSource(timeoutMs);
-            var notAnswered = new TimeoutException(
-                $"Revit did not answer '{request.Op}' in time. If a modal dialog blocks Revit's main thread, run 'revit-harness dialog-pending' and 'revit-harness dialog-decide'. A request Revit has not started yet is dropped when the client gives up; one that already started still finishes, so check its effect before running it again.");
+            var notAnswered = new HarnessFailureException(FailureKind.Timeout,
+                $"Revit did not answer '{request.Op}' in time. A request Revit has not started yet is dropped when the client gives up; one that already started still finishes, so check its effect before running it again.");
 
             try
             {
                 await WriteMessageAsync(_pipe, request, cts.Token);
                 var response = await ReadMessageAsync(_pipe, cts.Token);
                 if (response.Error?.Code == "TIMEOUT") throw notAnswered;
+                if (response.Error?.Code == "HARNESS_NOT_READY")
+                    throw new HarnessFailureException(FailureKind.HarnessNotReady, response.Error.Message);
                 return response;
             }
             catch (OperationCanceledException)

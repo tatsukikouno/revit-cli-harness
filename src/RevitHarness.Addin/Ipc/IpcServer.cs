@@ -60,6 +60,12 @@ namespace RevitHarness.Addin.Ipc
         /// </summary>
         public Func<IpcRequest, IpcResponse?>? DirectHandler { get; set; }
 
+        /// <summary>
+        /// False while the add-in is still starting: every request the DirectHandler does not answer gets
+        /// HARNESS_NOT_READY instead of waiting in the queue behind OnStartup.
+        /// </summary>
+        public volatile bool Ready = true;
+
         // The pipe name is a parameter so tests can run a server next to a real Revit.
         public IpcServer(Action<string> log, string pipeName = PipeName)
         {
@@ -196,6 +202,12 @@ namespace RevitHarness.Addin.Ipc
                     if (direct != null)
                     {
                         await WriteMessageAsync(pipe, direct, ct);
+                        continue;
+                    }
+
+                    if (!Ready)
+                    {
+                        await WriteMessageAsync(pipe, IpcResponse.Failure(request.Id, ErrorCodes.HarnessNotReady, "RevitHarness is still starting (OnStartup and the saved-target restore have not finished). Retry in a few seconds.", 0), ct);
                         continue;
                     }
 

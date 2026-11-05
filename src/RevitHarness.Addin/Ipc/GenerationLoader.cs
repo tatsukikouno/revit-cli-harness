@@ -42,46 +42,24 @@ namespace RevitHarness.Addin.Ipc
             }
         }
 
-        public static Generation Load(string shadowAssemblyPath, IEnumerable<Assembly> hostAssemblies, Action<string> log)
+        public static Generation Load(string shadowAssemblyPath, IEnumerable<Assembly> hostAssemblies, string? revitDirectory, Action<string> log)
         {
             shadowAssemblyPath = Path.GetFullPath(shadowAssemblyPath);
-            var hosts = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
-            var owned = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            ReferencePlan plan;
             lock (RegistryLock)
             {
-                foreach (var assembly in hostAssemblies)
-                    hosts[assembly.GetName().Name!] = assembly;
-                var mainName = AssemblyName.GetAssemblyName(shadowAssemblyPath).Name!;
-                var loaded = AppDomain.CurrentDomain.GetAssemblies();
-                foreach (var path in Directory.GetFiles(Path.GetDirectoryName(shadowAssemblyPath)!, "*.dll"))
-                {
-                    AssemblyName shadowName;
-                    try { shadowName = AssemblyName.GetAssemblyName(path); }
-                    catch (BadImageFormatException) { log($"Skipping native DLL: {path}"); continue; }
-
-                    var name = shadowName.Name!;
-                    if (name != mainName && hosts.ContainsKey(name)) continue;
-                    // A copy another add-in already loaded is shared only when it is at least as new as the one shipped with the target.
-                    var host = name == mainName || EverOwned.ContainsKey(name)
-                        ? null
-                        : loaded.FirstOrDefault(a => string.Equals(a.GetName().Name, name, StringComparison.OrdinalIgnoreCase)
-                            && a.GetName().Version >= shadowName.Version);
-                    if (host != null) hosts[name] = host;
-                    else owned[name] = path;
-                }
-                foreach (var name in owned.Keys) EverOwned.TryAdd(name, 0);
+                plan = ReferenceResolver.Plan(shadowAssemblyPath, hostAssemblies, revitDirectory, AppDomain.CurrentDomain.GetAssemblies(), EverOwned.ContainsKey, log);
+                foreach (var name in plan.Owned.Keys) EverOwned.TryAdd(name, 0);
             }
 #if NET48
-            Generation generation = new ByteGeneration(shadowAssemblyPath, owned, hosts, log);
+            Generation generation = new PathGeneration(shadowAssemblyPath, plan, log);
 #else
             WpfAssemblyNameCache.Log = log;
-            Generation generation = new CollectibleGeneration(shadowAssemblyPath, owned, hosts);
+            Generation generation = new CollectibleGeneration(shadowAssemblyPath, plan);
 #endif
-#if !NET48
-            // A collectible generation reads its shadow files lazily; a byte-loaded one has read them all by now.
+            // A byte-loaded assembly would not need its files, a path-loaded one maps them until it is collected.
             lock (RegistryLock)
                 Shadows.Add((Path.GetDirectoryName(shadowAssemblyPath)!, generation.Lifetime));
-#endif
             log($"Loaded generation: {generation.Assembly.FullName}");
             return generation;
         }
@@ -104,20 +82,22 @@ namespace RevitHarness.Addin.Ipc
         public abstract void Dispose();
 
 #if NET48
-        private sealed class ByteGeneration : Generation
+        private sealed class PathGeneration : Generation
         {
             private readonly Dictionary<string, Assembly> _assemblies = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
             private readonly Dictionary<string, Assembly> _hosts;
-            private static readonly List<ByteGeneration> Live = new List<ByteGeneration>();
+            private readonly Dictionary<string, string> _revitFiles;
+            private static readonly List<PathGeneration> Live = new List<PathGeneration>();
             private readonly Action<string> _log;
             private static int _stamp;
             private ResolveEventHandler? _resolver;
             public override WeakReference Lifetime { get; }
             public override IReadOnlyCollection<Assembly> Assemblies => _assemblies.Values;
 
-            public ByteGeneration(string path, Dictionary<string, string> owned, Dictionary<string, Assembly> hosts, Action<string> log) : base(path)
+            public PathGeneration(string path, ReferencePlan plan, Action<string> log) : base(path)
             {
-                _hosts = hosts;
+                _hosts = plan.Hosts;
+                _revitFiles = plan.RevitFiles;
                 _log = log;
                 _resolver = Resolve;
                 AppDomain.CurrentDomain.AssemblyResolve += _resolver;
@@ -125,23 +105,30 @@ namespace RevitHarness.Addin.Ipc
                 {
                     var mainName = AssemblyName.GetAssemblyName(path).Name!;
                     var suffix = "_g" + System.Threading.Interlocked.Increment(ref _stamp);
-                    var renames = owned.Keys
+                    var renames = plan.Owned.Keys
                         .Where(n => !string.Equals(n, mainName, StringComparison.OrdinalIgnoreCase))
                         .ToDictionary(n => n, n => n + suffix, StringComparer.OrdinalIgnoreCase);
-                    foreach (var item in owned)
+                    foreach (var item in plan.Owned)
                     {
-                        var pdbPath = Path.ChangeExtension(item.Value, ".pdb");
-                        var (dllBytes, pdbBytes) = renames.Count == 0
-                            ? (File.ReadAllBytes(item.Value), File.Exists(pdbPath) ? File.ReadAllBytes(pdbPath) : null)
-                            : AssemblyRenamer.Rename(File.ReadAllBytes(item.Value), File.Exists(pdbPath) ? File.ReadAllBytes(pdbPath) : null, renames);
+                        if (renames.Count > 0) RewriteInPlace(item.Value, renames);
                         var key = renames.TryGetValue(item.Key, out var renamed) ? renamed : item.Key;
-                        _assemblies[key] = pdbBytes != null ? Assembly.Load(dllBytes, pdbBytes) : Assembly.Load(dllBytes);
+                        // LoadFile, unlike LoadFrom, loads a second copy of an identity from another path, and Location stays real.
+                        _assemblies[key] = Assembly.LoadFile(item.Value);
                     }
-                    LoadedAssembly = _assemblies[AssemblyName.GetAssemblyName(path).Name!];
+                    LoadedAssembly = _assemblies[mainName];
                     lock (Live) Live.Add(this);
                     Lifetime = new WeakReference(LoadedAssembly, true);
                 }
                 catch { Dispose(); throw; }
+            }
+
+            // The shadow directory belongs to this generation, so the rewritten helper replaces its own copy.
+            private static void RewriteInPlace(string dllPath, IReadOnlyDictionary<string, string> renames)
+            {
+                var pdbPath = Path.ChangeExtension(dllPath, ".pdb");
+                var (dll, pdb) = AssemblyRenamer.Rename(File.ReadAllBytes(dllPath), File.Exists(pdbPath) ? File.ReadAllBytes(pdbPath) : null, renames);
+                File.WriteAllBytes(dllPath, dll);
+                if (pdb != null) File.WriteAllBytes(pdbPath, pdb);
             }
 
             private Assembly? Resolve(object? sender, ResolveEventArgs args)
@@ -158,7 +145,8 @@ namespace RevitHarness.Addin.Ipc
                 if (!mine) return null;
                 _log($"Resolve {name} requester={args.RequestingAssembly?.GetName().Name ?? "null"} main={LoadedAssembly?.GetName().Name}");
                 if (_assemblies.TryGetValue(name, out var owned)) return owned;
-                return _hosts.TryGetValue(name, out var host) ? host : null;
+                if (_hosts.TryGetValue(name, out var host)) return host;
+                return _revitFiles.TryGetValue(name, out var revitFile) ? Assembly.LoadFrom(revitFile) : null;
             }
 
             public override void Dispose()
@@ -169,6 +157,7 @@ namespace RevitHarness.Addin.Ipc
                 LoadedAssembly = null;
                 _assemblies.Clear();
                 _hosts.Clear();
+                _revitFiles.Clear();
             }
         }
 #else
@@ -178,9 +167,9 @@ namespace RevitHarness.Addin.Ipc
             public override WeakReference Lifetime { get; }
             public override IReadOnlyCollection<Assembly> Assemblies => _context?.Assemblies.ToArray() ?? Array.Empty<Assembly>();
 
-            public CollectibleGeneration(string path, Dictionary<string, string> owned, Dictionary<string, Assembly> hosts) : base(path)
+            public CollectibleGeneration(string path, ReferencePlan plan) : base(path)
             {
-                _context = new GenerationContext(owned, hosts);
+                _context = new GenerationContext(plan);
                 Lifetime = new WeakReference(_context, true);
                 try { LoadedAssembly = _context.LoadFromAssemblyName(AssemblyName.GetAssemblyName(path)); }
                 catch { Dispose(); throw; }
@@ -268,31 +257,28 @@ namespace RevitHarness.Addin.Ipc
         private sealed class GenerationContext : AssemblyLoadContext
         {
             private readonly Dictionary<string, string> _owned;
+            private readonly Dictionary<string, string> _revitFiles;
             // Weak: a resident target's assemblies handed to a throwaway generation must not pin the target's context once it is replaced.
             private readonly Dictionary<string, WeakReference<Assembly>> _hosts;
             private readonly AssemblyLoadContext _hostContext = GetLoadContext(typeof(Generation).Assembly)!;
             public bool Disposed { get; set; }
 
-            public GenerationContext(Dictionary<string, string> owned, Dictionary<string, Assembly> hosts)
+            public GenerationContext(ReferencePlan plan)
                 : base("RevitHarness-" + Guid.NewGuid().ToString("N"), isCollectible: true)
             {
-                _owned = owned;
-                _hosts = hosts.ToDictionary(h => h.Key, h => new WeakReference<Assembly>(h.Value), StringComparer.OrdinalIgnoreCase);
+                _owned = plan.Owned;
+                _revitFiles = plan.RevitFiles;
+                _hosts = plan.Hosts.ToDictionary(h => h.Key, h => new WeakReference<Assembly>(h.Value), StringComparer.OrdinalIgnoreCase);
             }
 
             protected override Assembly? Load(AssemblyName name)
             {
-                if (_owned.TryGetValue(name.Name!, out var path))
-                {
-                    using var dll = new MemoryStream(File.ReadAllBytes(path));
-                    var pdbPath = Path.ChangeExtension(path, ".pdb");
-                    using var pdb = File.Exists(pdbPath) ? new MemoryStream(File.ReadAllBytes(pdbPath)) : null;
-                    return LoadFromStream(dll, pdb);
-                }
+                if (_owned.TryGetValue(name.Name!, out var path)) return LoadFromAssemblyPath(path);
                 if (_hosts.TryGetValue(name.Name!, out var host) && host.TryGetTarget(out var hostAssembly)) return hostAssembly;
                 try { return _hostContext.LoadFromAssemblyName(name); }
-                catch (FileNotFoundException) { return null; }
-                catch (FileLoadException) { return null; }
+                catch (FileNotFoundException) { }
+                catch (FileLoadException) { }
+                return _revitFiles.TryGetValue(name.Name!, out var revitFile) ? _hostContext.LoadFromAssemblyPath(revitFile) : null;
             }
         }
 #endif

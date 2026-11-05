@@ -21,6 +21,25 @@
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" VersionOverride="2027.0.0" PrivateAssets="all" Private="False" ExcludeAssets="runtime" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" VersionOverride="2027.0.0" PrivateAssets="all" Private="False" ExcludeAssets="runtime" />
   </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)'=='net48'">
+    <PackageReference Include="Nice3point.Revit.Api.AdWindows" VersionOverride="2024.3.40" PrivateAssets="all" Private="False" ExcludeAssets="runtime" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)'=='net8.0-windows'">
+    <PackageReference Include="Nice3point.Revit.Api.AdWindows" VersionOverride="2026.4.0" PrivateAssets="all" Private="False" ExcludeAssets="runtime" />
+  </ItemGroup>
+  <!-- Files a real add-in keeps beside its DLL and reads through Assembly.Location. -->
+  <ItemGroup>
+    <None Include="sample.settings.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="data\table.csv" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- A CopyLocal build puts the Revit API next to the add-in. These are reference assemblies of the same identity:
+       if the harness ever loaded them instead of Revit's own, every call into them would fail. -->
+  <Target Name="CopyRevitReferencesBesideTarget" AfterTargets="Build">
+    <ItemGroup>
+      <RevitReferenceAssembly Include="@(ReferencePath)" Condition="'%(Filename)' == 'RevitAPI' Or '%(Filename)' == 'RevitAPIUI' Or '%(Filename)' == 'AdWindows'" />
+    </ItemGroup>
+    <Copy SourceFiles="@(RevitReferenceAssembly)" DestinationFolder="$(OutDir)" />
+  </Target>
   <ItemGroup>
     <ProjectReference Include="../../../src/RevitHarness.Contracts/RevitHarness.Contracts.csproj" />
     <ProjectReference Include="../SampleTarget.Core/SampleTarget.Core.csproj" />

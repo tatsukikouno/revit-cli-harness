@@ -412,3 +412,6 @@ FodyWeavers.xsd
 
 # Claude Code settings (personal configuration)
 .claude/
+
+# Machine-local vendor id read by the sample target (never commit a real id)
+samples/**/vendor.txt

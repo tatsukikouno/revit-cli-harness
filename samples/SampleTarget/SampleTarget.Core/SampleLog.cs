@@ -19,13 +19,14 @@ namespace SampleTarget.Core
 
     public static class SampleLog
     {
-        public static void Write(string kind, string tag, string coreTag)
+        public static void Write(string kind, string tag, string coreTag, params (string Key, string Value)[] extra)
         {
             var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "RevitHarness", "sample-target");
             Directory.CreateDirectory(directory);
             File.AppendAllText(Path.Combine(directory, "log.jsonl"),
-                "{\"kind\":" + Quote(kind) + ",\"tag\":" + Quote(tag) + ",\"coreTag\":" + Quote(coreTag) + "}\n",
+                "{\"kind\":" + Quote(kind) + ",\"tag\":" + Quote(tag) + ",\"coreTag\":" + Quote(coreTag)
+                + string.Concat(extra.Select(e => "," + Quote(e.Key) + ":" + Quote(e.Value))) + "}\n",
                 new UTF8Encoding(false));
         }
 

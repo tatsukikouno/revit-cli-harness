@@ -8,7 +8,7 @@ using System.Linq;
 namespace RevitHarness.Addin.Ipc
 {
     /// <summary>
-    /// Copies target DLLs and their dependencies without locking build output.
+    /// Copies a target's output directory without locking the build output.
     /// </summary>
     public class ShadowCopier
     {
@@ -18,15 +18,18 @@ namespace RevitHarness.Addin.Ipc
         private readonly string _shadowRoot;
         private readonly Action<string> _log;
 
-        public ShadowCopier(Action<string> log)
+        // The root is a parameter so tests do not write into the real shadow folder.
+        public ShadowCopier(Action<string> log, string? shadowRoot = null)
         {
             _log = log;
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            _shadowRoot = Path.Combine(localAppData, "RevitHarness", "shadow");
+            _shadowRoot = shadowRoot ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RevitHarness", "shadow");
         }
 
         /// <summary>
-        /// Copies the assembly and its dependencies to a timestamped shadow directory.
+        /// Copies the whole directory that holds the assembly (every file, subdirectories included) to a
+        /// timestamped shadow directory, so the generation loads by path and Assembly.Location and relative
+        /// files beside the DLL work unmodified.
         /// </summary>
         /// <param name="assemblyPath">Path to the main assembly.</param>
         /// <returns>Path to the shadow copied assembly.</returns>
@@ -35,55 +38,27 @@ namespace RevitHarness.Addin.Ipc
             if (!File.Exists(assemblyPath))
                 throw new FileNotFoundException($"Assembly not found: {assemblyPath}", assemblyPath);
 
-            // Create timestamped directory
+            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(assemblyPath))!;
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N");
             var shadowDir = Path.Combine(_shadowRoot, timestamp);
-            Directory.CreateDirectory(shadowDir);
-
             _log($"Shadow copy directory: {shadowDir}");
+            var count = CopyTree(sourceDir, shadowDir);
+            _log($"Copied {count} files from {sourceDir}");
+            return Path.Combine(shadowDir, Path.GetFileName(assemblyPath));
+        }
 
-            // Copy main assembly
-            var sourceDir = Path.GetDirectoryName(assemblyPath);
-            var assemblyName = Path.GetFileName(assemblyPath);
-            var shadowAssemblyPath = Path.Combine(shadowDir, assemblyName);
-
-            File.Copy(assemblyPath, shadowAssemblyPath, overwrite: true);
-            _log($"Copied: {assemblyName}");
-
-            // Copy dependent DLLs from the same directory
-            if (sourceDir != null)
+        private static int CopyTree(string source, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            var count = 0;
+            foreach (var file in Directory.GetFiles(source))
             {
-                foreach (var file in Directory.GetFiles(sourceDir, "*.dll"))
-                {
-                    var fileName = Path.GetFileName(file);
-                    if (fileName != assemblyName)
-                    {
-                        var destPath = Path.Combine(shadowDir, fileName);
-                        File.Copy(file, destPath, overwrite: true);
-                        _log($"Copied dependency: {fileName}");
-                    }
-                }
-
-                // Copy PDB files for debugging
-                foreach (var file in Directory.GetFiles(sourceDir, "*.pdb"))
-                {
-                    var fileName = Path.GetFileName(file);
-                    var destPath = Path.Combine(shadowDir, fileName);
-                    File.Copy(file, destPath, overwrite: true);
-                    _log($"Copied debug symbols: {fileName}");
-                }
-
-                // Copy config files
-                foreach (var file in Directory.GetFiles(sourceDir, "*.config"))
-                {
-                    var fileName = Path.GetFileName(file);
-                    var destPath = Path.Combine(shadowDir, fileName);
-                    File.Copy(file, destPath, overwrite: true);
-                    _log($"Copied config: {fileName}");
-                }
+                File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), overwrite: true);
+                count++;
             }
-
-            return shadowAssemblyPath;
+            foreach (var directory in Directory.GetDirectories(source))
+                count += CopyTree(directory, Path.Combine(destination, Path.GetFileName(directory)));
+            return count;
         }
 
         /// <summary>

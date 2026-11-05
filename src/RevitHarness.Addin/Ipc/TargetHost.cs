@@ -92,6 +92,9 @@ namespace RevitHarness.Addin.Ipc
             typeof(ElementSet).Assembly
         };
 
+        // RevitAPI.dll lives in the Revit install directory; every assembly Revit ships sits beside it.
+        public static string? RevitDirectory { get; } = Path.GetDirectoryName(typeof(ElementSet).Assembly.Location);
+
         public void Attach(UIControlledApplication application) => _uic = application;
 
         public TargetState State => _current == null ? TargetState.Unloaded : TargetState.Started;
@@ -142,7 +145,7 @@ namespace RevitHarness.Addin.Ipc
             try
             {
                 var shadowPath = _shadow.CopyToShadow(fullPath);
-                generation = Generation.Load(shadowPath, HostAssemblies, _log);
+                generation = Generation.Load(shadowPath, HostAssemblies, RevitDirectory, _log);
                 number = ++_generationsCreated;
                 app = Create(generation, typeName);
                 var started = app.OnStartup(uic);
@@ -327,7 +330,7 @@ namespace RevitHarness.Addin.Ipc
             var resident = TargetHost.Instance?.TryGetResidentAssembly(dllPath);
             if (resident != null) return new AssemblyLease(resident, null);
             var hosts = TargetHost.HostAssemblies.Concat(TargetHost.Instance?.ResidentAssemblies ?? Array.Empty<Assembly>());
-            var generation = Generation.Load(shadow.CopyToShadow(dllPath), hosts, log);
+            var generation = Generation.Load(shadow.CopyToShadow(dllPath), hosts, TargetHost.RevitDirectory, log);
             return new AssemblyLease(generation.Assembly, generation);
         }
 

@@ -12,6 +12,9 @@
     <Compile Include="..\..\src\RevitHarness.Addin\Ipc\IpcMessages.cs" Link="Addin\IpcMessages.cs" />
     <Compile Include="..\..\src\RevitHarness.Addin\Ipc\GenerationLoader.cs" Link="Addin\GenerationLoader.cs" />
     <Compile Include="..\..\src\RevitHarness.Addin\Ipc\AssemblyRenamer.cs" Link="Addin\AssemblyRenamer.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\ReferenceResolver.cs" Link="Addin\ReferenceResolver.cs" />
+    <Compile Include="..\..\src\RevitHarness.Addin\Ipc\ShadowCopier.cs" Link="Addin\ShadowCopier.cs" />
+    <Compile Include="..\..\src\RevitHarness.Cli\Diagnostics\*.cs" Link="Cli\Diagnostics\%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\src\RevitHarness.Cli\Installation\*.cs" Link="Cli\%(Filename)%(Extension)" />

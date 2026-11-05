@@ -461,8 +461,8 @@ namespace RevitHarness.Dialogs.Shared.Tests
         [Fact]
         public void SampleAllowlistInRepositoryParsesAndKnownAddInMatches()
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "samples", "allowlist.sample.json");
-            var file = JsonSerializer.Deserialize<AllowlistFile>(File.ReadAllText(Path.GetFullPath(path)))!;
+            var path = Path.Combine(AppContext.BaseDirectory, "allowlist.sample.json");
+            var file = JsonSerializer.Deserialize<AllowlistFile>(File.ReadAllText(path))!;
             var rule = Assert.Single(file.Rules, r => r.Match.AddIn != null);
             Assert.Equal("Load Once", rule.Action.ButtonName);
             Assert.Same(rule, DialogMatcher.FindFirstMatch(new[] { rule }, Security("Contoso.Tools"), DialogSource.Watcher));

@@ -222,7 +222,8 @@ namespace RevitHarness.Dialogs.Shared.Tests
         public void MissingWpfInternalsAreReportedOnceAndYieldNoCache()
         {
             var logged = new List<string>();
-            var owners = new[] { ("System.Private.CoreLib", "System.Object") };
+            var asm = typeof(FakeWpfHelper).Assembly.GetName().Name!;
+            var owners = new[] { (asm, typeof(NoWpfFields).FullName!) };
 
             var first = Generation.WpfAssemblyNameCache.Discover(owners, logged.Add);
             var second = Generation.WpfAssemblyNameCache.Discover(owners, logged.Add);
@@ -231,7 +232,24 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.Empty(second);
             var line = Assert.Single(logged);
             Assert.Contains("WPF internals changed", line);
-            Assert.Contains("System.Object", line);
+            Assert.Contains(nameof(NoWpfFields), line);
+        }
+
+        [Fact]
+        public void WpfCacheNotYetCreatedIsSkippedWithoutWarning()
+        {
+            var logged = new List<string>();
+
+            var caches = Generation.WpfAssemblyNameCache.Discover(new[] { (typeof(FakeWpfHelper).Assembly.GetName().Name!, typeof(UncreatedWpfCache).FullName!) }, logged.Add);
+
+            Assert.Empty(caches);
+            Assert.Empty(logged);
+        }
+
+        private static class UncreatedWpfCache
+        {
+            internal static Dictionary<object, AssemblyName>? _assemblies = null;
+            internal static readonly object syncObject = new object();
         }
 
         [Fact]
@@ -245,6 +263,8 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.Same(FakeWpfHelper._assemblies, cache.Entries);
             Assert.Same(FakeWpfHelper.syncObject, cache.Gate);
         }
+
+        private static class NoWpfFields { }
 
         private static class FakeWpfHelper
         {

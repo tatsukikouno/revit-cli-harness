@@ -249,14 +249,16 @@ namespace RevitHarness.Addin.Ipc
                     var assembly = loaded.FirstOrDefault(a => a.GetName().Name == assemblyName);
                     if (assembly == null) continue;
                     var type = assembly.GetType(typeName);
-                    var entries = type?.GetField("_assemblies", AnyStatic)?.GetValue(null) as IDictionary;
-                    var gate = type?.GetField("syncObject", AnyStatic)?.GetValue(null);
-                    if (entries == null || gate == null)
+                    var entriesField = type?.GetField("_assemblies", AnyStatic);
+                    var gateField = type?.GetField("syncObject", AnyStatic);
+                    if (entriesField == null || gateField == null)
                     {
                         if (Reported.Add(typeName))
                             log?.Invoke($"WPF internals changed: {typeName} in {assemblyName} has no static _assemblies/syncObject. Disposed generations are no longer evicted from WPF's assembly-name cache and may stay loaded.");
                         continue;
                     }
+                    // WPF creates the dictionary on its first lookup; until then there is nothing to evict.
+                    if (!(entriesField.GetValue(null) is IDictionary entries) || gateField.GetValue(null) is not { } gate) continue;
                     caches.Add(new Cache(entries, gate));
                 }
                 return caches;

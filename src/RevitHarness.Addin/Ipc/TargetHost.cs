@@ -248,7 +248,8 @@ namespace RevitHarness.Addin.Ipc
             if (existing != null)
             {
                 if (!existing.ClassName.StartsWith(slotClass, StringComparison.Ordinal)
-                    || !int.TryParse(existing.ClassName.Substring(slotClass.Length), out var existingIndex)
+                    || !int.TryParse(existing.ClassName.Substring(slotClass.Length), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var existingIndex)
+                    || existingIndex >= SlotCount
                     || _slots[existingIndex] == null)
                     throw new InvalidOperationException($"Ribbon button '{name}' on panel '{panel.Name}' was not created by the harness.");
                 _slots[existingIndex]!.CommandType = commandType;

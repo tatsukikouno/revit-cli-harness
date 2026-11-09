@@ -9,14 +9,13 @@ using System.Reflection;
 namespace RevitHarness.Cli.Installation
 {
     /// <summary>
-    /// Installs and removes the RevitHarness add-in, the DialogWatcher and the SKILLs.
+    /// Installs and removes the RevitHarness add-in, and the DialogWatcher.
     /// </summary>
     public sealed class RevitInstaller
     {
         private static readonly int[] SupportedRevitVersions = { 2024, 2025, 2026, 2027 };
 
         private const string AddinManifestResourceName = "RevitHarness.addin";
-        private const string SkillMarkerFile = ".revit-harness";
 
         private readonly InstallLayout _layout;
         private readonly WatcherControl _watcher;
@@ -101,7 +100,7 @@ namespace RevitHarness.Cli.Installation
         }
 
         /// <summary>
-        /// Installs the add-in for one Revit version, plus the watcher and the SKILLs. Re-running
+        /// Installs the add-in for one Revit version, plus the watcher. Re-running
         /// replaces everything this installs; a running watcher is stopped first.
         /// </summary>
         public InstallResult Install(int revitVersion, string? vendorId = null)
@@ -158,20 +157,10 @@ namespace RevitHarness.Cli.Installation
                     return result;
                 }
 
-                if (!File.Exists(Path.Combine(_layout.BundledWatcherDir, InstallLayout.WatcherExeName)) || !Directory.Exists(_layout.BundledSkillsDir))
+                if (!File.Exists(Path.Combine(_layout.BundledWatcherDir, InstallLayout.WatcherExeName)))
                 {
                     result.Success = false;
-                    result.Message = $"This CLI build does not bundle the watcher or the SKILLs (expected {Path.Combine(_layout.BundledWatcherDir, InstallLayout.WatcherExeName)} and {_layout.BundledSkillsDir}).";
-                    return result;
-                }
-
-                var foreign = BundledSkillNames()
-                    .Select(skill => Path.Combine(_layout.SkillsDir, skill))
-                    .FirstOrDefault(dest => Directory.Exists(dest) && !IsOwnedSkill(dest));
-                if (foreign != null)
-                {
-                    result.Success = false;
-                    result.Message = $"{foreign} already exists and was not installed by revit-harness; move it away or choose another --skills-dir.";
+                    result.Message = $"This CLI build does not bundle the watcher (expected {Path.Combine(_layout.BundledWatcherDir, InstallLayout.WatcherExeName)}).";
                     return result;
                 }
 
@@ -218,14 +207,6 @@ namespace RevitHarness.Cli.Installation
 
                 ReplaceDirectory(_layout.WatcherDir);
                 CopyDirectory(_layout.BundledWatcherDir, _layout.WatcherDir, extractedFiles);
-
-                foreach (var skill in BundledSkillNames())
-                {
-                    var dest = Path.Combine(_layout.SkillsDir, skill);
-                    ReplaceDirectory(dest);
-                    CopyDirectory(Path.Combine(_layout.BundledSkillsDir, skill), dest, extractedFiles);
-                    File.WriteAllText(Path.Combine(dest, SkillMarkerFile), "installed by revit-harness install");
-                }
 
                 result.Success = true;
                 result.Message = $"RevitHarness installed successfully for Revit {revitVersion}" +
@@ -293,15 +274,6 @@ namespace RevitHarness.Cli.Installation
                         Directory.Delete(_layout.WatcherDir, recursive: true);
                         removedFiles.Add(_layout.WatcherDir);
                     }
-
-                    foreach (var skill in BundledSkillNames())
-                    {
-                        var dest = Path.Combine(_layout.SkillsDir, skill);
-                        if (!IsOwnedSkill(dest))
-                            continue;
-                        Directory.Delete(dest, recursive: true);
-                        removedFiles.Add(dest);
-                    }
                 }
 
                 result.Success = true;
@@ -319,21 +291,14 @@ namespace RevitHarness.Cli.Installation
             return result;
         }
 
-        private IEnumerable<string> BundledSkillNames() =>
-            Directory.Exists(_layout.BundledSkillsDir)
-                ? Directory.GetDirectories(_layout.BundledSkillsDir).Select(d => Path.GetFileName(d)!)
-                : Enumerable.Empty<string>();
-
-        private static bool IsOwnedSkill(string dir) => File.Exists(Path.Combine(dir, SkillMarkerFile));
-
-        private static void ReplaceDirectory(string path)
+        internal static void ReplaceDirectory(string path)
         {
             if (Directory.Exists(path))
                 Directory.Delete(path, recursive: true);
             Directory.CreateDirectory(path);
         }
 
-        private static void CopyDirectory(string source, string dest, List<string> copied)
+        internal static void CopyDirectory(string source, string dest, List<string> copied)
         {
             foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
             {

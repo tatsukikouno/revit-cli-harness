@@ -15,28 +15,24 @@ namespace RevitHarness.Cli.Installation
     {
         public const string WatcherExeName = "RevitHarness.DialogWatcher.exe";
 
-        public InstallLayout(string appData, string localAppData, string skillsDir, string bundleRoot, string[] dotnetRoots)
+        public InstallLayout(string appData, string localAppData, string bundleRoot, string[] dotnetRoots)
         {
             AppData = appData;
             LocalAppData = localAppData;
-            SkillsDir = skillsDir;
             BundleRoot = bundleRoot;
             DotnetRoots = dotnetRoots;
         }
 
         public string AppData { get; }
         public string LocalAppData { get; }
-        public string SkillsDir { get; }
         public string BundleRoot { get; }
         public string[] DotnetRoots { get; }
 
-        public static InstallLayout Create(string? skillsDir)
+        public static InstallLayout Create()
         {
-            var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             return new InstallLayout(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                skillsDir ?? Path.Combine(profile, ".claude", "skills"),
                 AppContext.BaseDirectory,
                 DotnetRootCandidates(Environment.GetEnvironmentVariable("DOTNET_ROOT_X64"), Environment.GetEnvironmentVariable("DOTNET_ROOT"), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
         }

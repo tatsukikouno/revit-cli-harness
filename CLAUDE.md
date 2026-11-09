@@ -12,7 +12,7 @@ A Revit 2024/2025/2026/2027 harness add-in that enables external CLI/agent execu
 - **Thread Safety**: All Revit API calls go through `ExternalEvent` → `HarnessEventHandler.Execute()` on Revit's main thread. A 100ms polling timer in `App.cs` raises the event when requests are pending.
 - **Generation loading**: The target’s whole output directory is copied to a shadow directory and loaded by path from there (so `Assembly.Location` and files beside the DLL work). Revit 2024 renames the helper DLLs per generation (Cecil) and loads them with `Assembly.LoadFile`; Revit 2025–2027 create a new collectible AssemblyLoadContext per generation. A DLL whose name also exists in the Revit install directory is Revit’s (`ReferenceResolver`); Revit API and Contracts stay shared. Old shadow directory cleanup protects active and live old generations. Design and rejected alternatives: `docs/hot-reload-redesign.md`.
 - **Mixed Frameworks**: Addin and Lookup both multi-target per Revit year via Configuration suffix (`R24`/`R25`/`R26`/`R27`) — `net48` for Revit 2024, `net8.0-windows` for Revit 2025/2026, `net10.0-windows` for Revit 2027. Contracts multi-targets `net48;net8.0-windows;net10.0-windows` directly (published NuGet package). CLI and DialogWatcher target .NET 10 (independent of Revit's runtime); the CLI targets `net10.0` (a `dotnet tool` cannot use a Windows-specific TFM).
-- **Embedded Resources**: CLI embeds the Addin build output as EmbeddedResources for self-contained `install` deployment. The DialogWatcher build output and `skills/` ship as plain files next to the CLI dll in the nupkg (`tools/net10.0/any/watcher`, `/skills`), and `install` copies them to `%LOCALAPPDATA%\RevitHarness\watcher` and `%USERPROFILE%\.claude\skills` (or `--skills-dir`)
+- **Embedded Resources**: CLI embeds the Addin build output as EmbeddedResources for self-contained `install` deployment. The DialogWatcher build output and `skills/` ship as plain files next to the CLI dll in the nupkg (`tools/net10.0/any/watcher`, `/skills`), and `install` copies the watcher to `%LOCALAPPDATA%\RevitHarness\watcher`; `install-skills --dir <path>` copies the SKILLs into a Claude Code skills folder you name (no default, so a WSL-only setup never gets a Windows-side `.claude\skills`; pass a `\\wsl.localhost\<distro>\...` UNC path for WSL)
 
 ### NuGet Packages
 
@@ -128,9 +128,11 @@ Exit codes: 0=success, 1=failure (`ok=false` or `passed=false`), 2=CONNECTION_FA
 ## CLI Usage
 
 ```bash
-revit-harness install --revit-version 2024 [--vendor-id <id>] [--skills-dir <path>]
+revit-harness install --revit-version 2024 [--vendor-id <id>]
+revit-harness install-skills --dir <skills folder>
+revit-harness uninstall-skills --dir <skills folder>
 revit-harness prepare-target --addin <path to the target's .addin> [--restore]
-revit-harness uninstall --revit-version 2024 [--skills-dir <path>]
+revit-harness uninstall --revit-version 2024
 revit-harness status [--revit-version 2024]
 revit-harness ping
 revit-harness run-tests --dll <path> --type <typename> [--filter <filter>] [--timeout <ms>]

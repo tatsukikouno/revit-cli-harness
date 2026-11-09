@@ -28,9 +28,10 @@ dotnet tool install -g RevitHarness.Cli
 ### アドインの展開
 
 ```bash
-# インストール: アドイン、ダイアログウォッチャー、SKILL を展開（再実行で上書き）
+# インストール: アドインとダイアログウォッチャーを展開（再実行で上書き）
 revit-harness install --revit-version 2024   # 2024 / 2025 / 2026 / 2027
-revit-harness install --revit-version 2024 --skills-dir D:\my-skills   # SKILL の展開先を変更
+revit-harness install-skills --dir %USERPROFILE%\.claude\skills   # SKILL は別コマンド（--dir 必須）
+revit-harness install-skills --dir \\wsl.localhost\Ubuntu\home\<user>\.claude\skills   # WSL 側の Claude Code 向け
 revit-harness install --revit-version 2024 --vendor-id <ベンダーID>      # 下の「VendorId」を参照
 
 # 状態確認
@@ -55,7 +56,6 @@ revit-harness uninstall --revit-version 2024
     ├── Newtonsoft.Json.dll
     └── ...
 %LOCALAPPDATA%\RevitHarness\watcher\       # ダイアログウォッチャー
-%USERPROFILE%\.claude\skills\<skill>\      # SKILL（--skills-dir で変更可）
 ```
 
 ## CLI コマンド

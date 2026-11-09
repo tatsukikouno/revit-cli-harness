@@ -45,6 +45,12 @@ namespace RevitHarness.Cli
                     case "uninstall":
                         return RunUninstall(args);
 
+                    case "install-skills":
+                        return RunSkills(args, install: true);
+
+                    case "uninstall-skills":
+                        return RunSkills(args, install: false);
+
                     case "status":
                         return RunStatus(args);
 
@@ -159,20 +165,23 @@ namespace RevitHarness.Cli
 
 Installation Commands:
   install                       Install the add-in to Revit, the dialog watcher to
-                                %LOCALAPPDATA%\RevitHarness\watcher and the SKILLs
+                                %LOCALAPPDATA%\RevitHarness\watcher
     --revit-version <year>      Revit version (e.g., 2024, 2025, 2026, 2027) (required)
     --vendor-id <id>            VendorId written into the installed RevitHarness.addin. Extensible
                                 Storage schemas gated by a vendor id match it. Kept on reinstall;
                                 restart Revit when it changes (optional)
-    --skills-dir <path>         SKILL folder (optional, default: %USERPROFILE%\.claude\skills)
   prepare-target                Park a target add-in's own .addin (rename to .addin.parked) so only the
                                 harness loader is active. Never deletes.
     --addin <path>              The target's .addin file (required)
     --restore                   Put a parked .addin back
   uninstall                     Remove the add-in; the last uninstall also removes the watcher
-                                and SKILLs (the dialogs data folder is kept)
+                                (the dialogs data folder is kept)
     --revit-version <year>      Revit version (e.g., 2024, 2025, 2026, 2027) (required)
-    --skills-dir <path>         SKILL folder used at install (optional)
+  install-skills                Copy the bundled SKILLs into a Claude Code skills folder. For WSL pass a
+                                UNC path, e.g. \\wsl.localhost\Ubuntu\home\<user>\.claude\skills
+    --dir <path>                Skills folder (required; no default)
+  uninstall-skills              Remove the SKILLs install-skills placed (only folders it marked)
+    --dir <path>                Skills folder (required)
   status                        Show installation status
     --revit-version <year>      Revit version (optional, shows all if omitted)
 
@@ -234,7 +243,6 @@ Exit codes (stderr starts with 'revit-harness: <TOKEN>: <message>' for 2-5):
         private static int RunInstall(string[] args)
         {
             int? revitVersion = null;
-            string? skillsDir = null;
             string? vendorId = null;
 
             for (int i = 1; i < args.Length; i++)
@@ -253,14 +261,6 @@ Exit codes (stderr starts with 'revit-harness: <TOKEN>: <message>' for 2-5):
                         }
                         vendorId = args[++i];
                         break;
-                    case "--skills-dir":
-                        if (i + 1 >= args.Length)
-                        {
-                            Console.Error.WriteLine("Error: --skills-dir needs a path");
-                            return ExitFailure;
-                        }
-                        skillsDir = Path.GetFullPath(args[++i]);
-                        break;
                 }
             }
 
@@ -272,7 +272,7 @@ Exit codes (stderr starts with 'revit-harness: <TOKEN>: <message>' for 2-5):
 
             Console.WriteLine($"Installing RevitHarness for Revit {revitVersion}...");
 
-            var result = new RevitInstaller(InstallLayout.Create(skillsDir)).Install(revitVersion.Value, vendorId);
+            var result = new RevitInstaller(InstallLayout.Create()).Install(revitVersion.Value, vendorId);
 
             if (result.Success)
             {
@@ -296,10 +296,38 @@ Exit codes (stderr starts with 'revit-harness: <TOKEN>: <message>' for 2-5):
             }
         }
 
+        private static int RunSkills(string[] args, bool install)
+        {
+            string? dir = null;
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (args[i].Equals("--dir", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                    dir = Path.GetFullPath(args[++i]);
+            }
+
+            if (dir == null)
+            {
+                Console.Error.WriteLine("Error: --dir is required");
+                return ExitFailure;
+            }
+
+            var skills = new SkillInstaller(InstallLayout.Create().BundledSkillsDir);
+            var result = install ? skills.Install(dir) : skills.Uninstall(dir);
+            if (!result.Success)
+            {
+                Console.Error.WriteLine(result.Message);
+                return ExitFailure;
+            }
+
+            Console.WriteLine(result.Message);
+            foreach (var file in result.Files.Where(f => install ? f.EndsWith("SKILL.md", StringComparison.Ordinal) : true))
+                Console.WriteLine($"  - {file}");
+            return ExitSuccess;
+        }
+
         private static int RunUninstall(string[] args)
         {
             int? revitVersion = null;
-            string? skillsDir = null;
 
             for (int i = 1; i < args.Length; i++)
             {
@@ -308,14 +336,6 @@ Exit codes (stderr starts with 'revit-harness: <TOKEN>: <message>' for 2-5):
                     case "--revit-version":
                         if (i + 1 < args.Length && int.TryParse(args[++i], out var v))
                             revitVersion = v;
-                        break;
-                    case "--skills-dir":
-                        if (i + 1 >= args.Length)
-                        {
-                            Console.Error.WriteLine("Error: --skills-dir needs a path");
-                            return ExitFailure;
-                        }
-                        skillsDir = Path.GetFullPath(args[++i]);
                         break;
                 }
             }
@@ -328,7 +348,7 @@ Exit codes (stderr starts with 'revit-harness: <TOKEN>: <message>' for 2-5):
 
             Console.WriteLine($"Uninstalling RevitHarness from Revit {revitVersion}...");
 
-            var result = new RevitInstaller(InstallLayout.Create(skillsDir)).Uninstall(revitVersion.Value);
+            var result = new RevitInstaller(InstallLayout.Create()).Uninstall(revitVersion.Value);
 
             if (result.Success)
             {
@@ -392,7 +412,7 @@ Exit codes (stderr starts with 'revit-harness: <TOKEN>: <message>' for 2-5):
                 }
             }
 
-            var installer = new RevitInstaller(InstallLayout.Create(null));
+            var installer = new RevitInstaller(InstallLayout.Create());
             if (revitVersion.HasValue)
             {
                 // Show status for specific version
@@ -568,7 +588,7 @@ Exit codes (stderr starts with 'revit-harness: <TOKEN>: <message>' for 2-5):
                 return ExitFailure;
             }
 
-            var watcher = new WatcherControl(InstallLayout.Create(null));
+            var watcher = new WatcherControl(InstallLayout.Create());
             var result = verb == "start" ? watcher.Start()
                 : verb == "stop" ? watcher.Stop()
                 : watcher.Status();

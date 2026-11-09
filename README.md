@@ -28,9 +28,10 @@ dotnet tool install -g RevitHarness.Cli
 ### Deploying the Add-in
 
 ```bash
-# Install: the add-in, the dialog watcher and the SKILLs (re-running overwrites cleanly)
+# Install: the add-in and the dialog watcher (re-running overwrites cleanly)
 revit-harness install --revit-version 2024   # 2024, 2025, 2026 or 2027
-revit-harness install --revit-version 2024 --skills-dir D:\my-skills   # SKILLs elsewhere
+revit-harness install-skills --dir %USERPROFILE%\.claude\skills   # SKILLs (separate command; --dir required)
+revit-harness install-skills --dir \\wsl.localhost\Ubuntu\home\<user>\.claude\skills   # for Claude Code on WSL
 revit-harness install --revit-version 2024 --vendor-id <your-vendor-id>  # see "VendorId" below
 
 # Check status
@@ -55,7 +56,6 @@ revit-harness uninstall --revit-version 2024
     ├── Newtonsoft.Json.dll
     └── ...
 %LOCALAPPDATA%\RevitHarness\watcher\       # dialog watcher
-%USERPROFILE%\.claude\skills\<skill>\      # SKILLs (or --skills-dir)
 ```
 
 ## CLI Commands

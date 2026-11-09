@@ -13,20 +13,29 @@ description: |
 ## Install
 
 ```bash
-revit-harness install --revit-version <year> [--vendor-id <id>] [--skills-dir <path>]
+revit-harness install --revit-version <year> [--vendor-id <id>]
 ```
 
 - `--revit-version`: Revit version year (2024, 2025, 2026 or 2027) - required
 - `--vendor-id`: the `<VendorId>` written into the installed `RevitHarness.addin`. Extensible Storage schemas gated by a vendor id must match the id of the running add-in, and code hot-loaded by the harness runs as the harness add-in. A reinstall without the flag keeps the installed id; `status` shows it. Revit reads the manifest at startup, so restart Revit after the id changes. Never commit a real vendor id
-- `--skills-dir`: where to install the SKILLs (default `%USERPROFILE%\.claude\skills`)
 
-Install and uninstall refuse to run while Revit is running: close Revit first. Re-running install replaces everything it installed. A running dialog watcher is stopped first. A skill folder with the same name that was not installed by `revit-harness` (it has no `.revit-harness` marker file) is never overwritten or removed; install fails and names it.
+Install and uninstall refuse to run while Revit is running: close Revit first. Re-running install replaces everything it installed. A running dialog watcher is stopped first.
 
 Example:
 ```bash
 revit-harness install --revit-version 2024
-revit-harness install --revit-version 2024 --skills-dir D:\my-skills
 ```
+
+## Install the SKILLs
+
+`install` does not place SKILLs. Use `install-skills`, which needs no Revit and has no default folder:
+
+```bash
+revit-harness install-skills --dir <skills folder>
+revit-harness uninstall-skills --dir <skills folder>
+```
+
+For Claude Code on WSL pass the UNC path of the WSL skills folder, e.g. `\\wsl.localhost\Ubuntu\home\<user>\.claude\skills`. A skill folder with the same name that was not installed by `revit-harness` (it has no `.revit-harness` marker file) is never overwritten or removed; install fails and names it. `uninstall-skills` removes only marked folders.
 
 ## Park a target's own `.addin`
 
@@ -39,10 +48,10 @@ Renames `X.addin` to `X.addin.parked` so Revit (which reads only `*.addin`) does
 ## Uninstall
 
 ```bash
-revit-harness uninstall --revit-version <year> [--skills-dir <path>]
+revit-harness uninstall --revit-version <year>
 ```
 
-Removes the add-in for that version. The watcher and SKILLs are shared, so they are removed with the last installed version (pass the same `--skills-dir` as at install). The dialogs data folder (allowlist, logs, pending) is kept.
+Removes the add-in for that version. The watcher is shared, so it is removed with the last installed version. The dialogs data folder (allowlist, logs, pending) is kept.
 
 Example:
 ```bash
@@ -69,7 +78,6 @@ Shows installation status. If `--revit-version` is omitted, shows all detected v
 %LOCALAPPDATA%\RevitHarness\
 ├── watcher\                 dialog watcher (see revit-harness-dialogs)
 └── dialogs\                 allowlist, logs, pending (never removed by uninstall)
-%USERPROFILE%\.claude\skills\<skill>\SKILL.md    or <--skills-dir>\<skill>\SKILL.md
 ```
 
 ## After Installation

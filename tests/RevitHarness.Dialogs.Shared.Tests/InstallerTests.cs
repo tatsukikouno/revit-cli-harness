@@ -23,7 +23,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
             File.WriteAllText(Path.Combine(bundle, "skills", "skill-b", "SKILL.md"), "b");
 
             _layout = new InstallLayout(
-                Path.Combine(_root, "appdata"), Path.Combine(_root, "local"), Path.Combine(_root, "skills"), bundle, new[] { Path.Combine(_root, "dotnet") });
+                Path.Combine(_root, "appdata"), Path.Combine(_root, "local"), bundle, new[] { Path.Combine(_root, "dotnet") });
             Directory.CreateDirectory(_layout.AddinsFolder(2024));
             Directory.CreateDirectory(_layout.AddinsFolder(2025));
             Directory.CreateDirectory(_layout.AddinsFolder(2027));
@@ -36,7 +36,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
         private RevitInstaller NewInstaller() => new RevitInstaller(_layout, new WatcherControl(_layout), () => _revitRunning);
 
         [Fact]
-        public void Install_places_addin_watcher_and_skills()
+        public void Install_places_addin_and_watcher()
         {
             var result = NewInstaller().Install(2024);
 
@@ -45,8 +45,6 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.True(File.Exists(_layout.ManifestPath(2024)));
             Assert.Equal("exe-v1", File.ReadAllText(_layout.WatcherExe));
             Assert.True(File.Exists(Path.Combine(_layout.WatcherDir, "sub", "lib.dll")));
-            Assert.True(File.Exists(Path.Combine(_layout.SkillsDir, "skill-a", "SKILL.md")));
-            Assert.True(File.Exists(Path.Combine(_layout.SkillsDir, "skill-b", "SKILL.md")));
         }
 
         [Fact]
@@ -164,7 +162,6 @@ namespace RevitHarness.Dialogs.Shared.Tests
             NewInstaller().Install(2024);
             File.WriteAllText(Path.Combine(_layout.WatcherDir, "stale.dll"), "old");
             File.WriteAllText(Path.Combine(_layout.InstallationFolder(2024), "stale.dll"), "old");
-            File.WriteAllText(Path.Combine(_layout.SkillsDir, "skill-a", "old.md"), "old");
             File.WriteAllText(Path.Combine(_layout.BundledWatcherDir, InstallLayout.WatcherExeName), "exe-v2");
 
             var result = NewInstaller().Install(2024);
@@ -173,36 +170,6 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.Equal("exe-v2", File.ReadAllText(_layout.WatcherExe));
             Assert.False(File.Exists(Path.Combine(_layout.WatcherDir, "stale.dll")));
             Assert.False(File.Exists(Path.Combine(_layout.InstallationFolder(2024), "stale.dll")));
-            Assert.False(File.Exists(Path.Combine(_layout.SkillsDir, "skill-a", "old.md")));
-        }
-
-        [Fact]
-        public void Install_leaves_foreign_skills_alone()
-        {
-            Directory.CreateDirectory(Path.Combine(_layout.SkillsDir, "someone-elses"));
-            File.WriteAllText(Path.Combine(_layout.SkillsDir, "someone-elses", "SKILL.md"), "keep");
-
-            NewInstaller().Install(2024);
-            NewInstaller().Uninstall(2024);
-
-            Assert.True(File.Exists(Path.Combine(_layout.SkillsDir, "someone-elses", "SKILL.md")));
-        }
-
-        [Fact]
-        public void Same_named_skill_not_installed_by_us_is_neither_replaced_nor_removed()
-        {
-            var foreign = Path.Combine(_layout.SkillsDir, "skill-a");
-            Directory.CreateDirectory(foreign);
-            File.WriteAllText(Path.Combine(foreign, "SKILL.md"), "mine");
-
-            var install = NewInstaller().Install(2024);
-            var uninstall = NewInstaller().Uninstall(2024);
-
-            Assert.False(install.Success);
-            Assert.Contains("skill-a", install.Message);
-            Assert.False(File.Exists(_layout.ManifestPath(2024)));
-            Assert.True(uninstall.Success);
-            Assert.Equal("mine", File.ReadAllText(Path.Combine(foreign, "SKILL.md")));
         }
 
         [Fact]
@@ -283,12 +250,11 @@ namespace RevitHarness.Dialogs.Shared.Tests
             Assert.False(File.Exists(_layout.ManifestPath(2024)));
             Assert.False(Directory.Exists(_layout.InstallationFolder(2024)));
             Assert.False(Directory.Exists(_layout.WatcherDir));
-            Assert.False(Directory.Exists(Path.Combine(_layout.SkillsDir, "skill-a")));
             Assert.True(File.Exists(Path.Combine(_layout.DialogsDir, "allowlist.json")));
         }
 
         [Fact]
-        public void Uninstall_keeps_watcher_and_skills_while_another_version_is_installed()
+        public void Uninstall_keeps_watcher_while_another_version_is_installed()
         {
             NewInstaller().Install(2024);
             NewInstaller().Install(2025);
@@ -297,7 +263,6 @@ namespace RevitHarness.Dialogs.Shared.Tests
 
             Assert.False(Directory.Exists(_layout.InstallationFolder(2024)));
             Assert.True(File.Exists(_layout.WatcherExe));
-            Assert.True(File.Exists(Path.Combine(_layout.SkillsDir, "skill-a", "SKILL.md")));
         }
 
         [Fact]
@@ -329,6 +294,89 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
     }
 
+    public sealed class SkillInstallerTests : IDisposable
+    {
+        private readonly string _root = Path.Combine(Path.GetTempPath(), "rh-skills-" + Guid.NewGuid().ToString("N"));
+        private readonly string _bundled;
+        private readonly string _dir;
+
+        public SkillInstallerTests()
+        {
+            _bundled = Path.Combine(_root, "bundle", "skills");
+            foreach (var name in new[] { "skill-a", "skill-b" })
+            {
+                Directory.CreateDirectory(Path.Combine(_bundled, name));
+                File.WriteAllText(Path.Combine(_bundled, name, "SKILL.md"), name);
+            }
+            _dir = Path.Combine(_root, "target", "skills");
+        }
+
+        public void Dispose() => Directory.Delete(_root, recursive: true);
+
+        private SkillInstaller New() => new SkillInstaller(_bundled);
+
+        [Fact]
+        public void Install_creates_the_folder_and_places_every_skill()
+        {
+            var result = New().Install(_dir);
+
+            Assert.True(result.Success, result.Message);
+            Assert.Equal("skill-a", File.ReadAllText(Path.Combine(_dir, "skill-a", "SKILL.md")));
+            Assert.True(File.Exists(Path.Combine(_dir, "skill-b", "SKILL.md")));
+        }
+
+        [Fact]
+        public void Install_twice_replaces_stale_files()
+        {
+            New().Install(_dir);
+            File.WriteAllText(Path.Combine(_dir, "skill-a", "old.md"), "old");
+
+            Assert.True(New().Install(_dir).Success);
+
+            Assert.False(File.Exists(Path.Combine(_dir, "skill-a", "old.md")));
+        }
+
+        [Fact]
+        public void Same_named_skill_not_installed_by_us_is_neither_replaced_nor_removed()
+        {
+            var foreign = Path.Combine(_dir, "skill-a");
+            Directory.CreateDirectory(foreign);
+            File.WriteAllText(Path.Combine(foreign, "SKILL.md"), "mine");
+
+            var install = New().Install(_dir);
+            var uninstall = New().Uninstall(_dir);
+
+            Assert.False(install.Success);
+            Assert.Contains("skill-a", install.Message);
+            Assert.False(Directory.Exists(Path.Combine(_dir, "skill-b")));
+            Assert.True(uninstall.Success);
+            Assert.Equal("mine", File.ReadAllText(Path.Combine(foreign, "SKILL.md")));
+        }
+
+        [Fact]
+        public void Uninstall_removes_ours_and_leaves_other_skills()
+        {
+            Directory.CreateDirectory(Path.Combine(_dir, "someone-elses"));
+            File.WriteAllText(Path.Combine(_dir, "someone-elses", "SKILL.md"), "keep");
+            New().Install(_dir);
+
+            var result = New().Uninstall(_dir);
+
+            Assert.True(result.Success, result.Message);
+            Assert.False(Directory.Exists(Path.Combine(_dir, "skill-a")));
+            Assert.True(File.Exists(Path.Combine(_dir, "someone-elses", "SKILL.md")));
+        }
+
+        [Fact]
+        public void Install_fails_when_the_build_bundles_no_skills()
+        {
+            var result = new SkillInstaller(Path.Combine(_root, "missing")).Install(_dir);
+
+            Assert.False(result.Success);
+            Assert.False(Directory.Exists(_dir));
+        }
+    }
+
     public sealed class WatcherControlTests : IDisposable
     {
         private const string WatcherName = "RevitHarness.DialogWatcher";
@@ -337,7 +385,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
 
         public WatcherControlTests()
         {
-            _layout = new InstallLayout(Path.Combine(_root, "appdata"), Path.Combine(_root, "local"), Path.Combine(_root, "skills"), Path.Combine(_root, "bundle"), new[] { Path.Combine(_root, "dotnet") });
+            _layout = new InstallLayout(Path.Combine(_root, "appdata"), Path.Combine(_root, "local"), Path.Combine(_root, "bundle"), new[] { Path.Combine(_root, "dotnet") });
             Directory.CreateDirectory(_layout.WatcherDir);
             File.WriteAllText(_layout.WatcherExe, "exe");
             File.WriteAllText(Path.Combine(_layout.WatcherDir, "RevitHarness.DialogWatcher.runtimeconfig.json"),
@@ -423,7 +471,7 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         private InstallLayout LayoutWithRoots(string? dotnetRootX64, string? dotnetRoot, string programFiles) =>
-            new InstallLayout(_layout.AppData, _layout.LocalAppData, _layout.SkillsDir, _layout.BundleRoot,
+            new InstallLayout(_layout.AppData, _layout.LocalAppData, _layout.BundleRoot,
                 InstallLayout.DotnetRootCandidates(dotnetRootX64, dotnetRoot, programFiles));
 
         [Fact]

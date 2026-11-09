@@ -19,7 +19,7 @@ run on its own: start it before Revit and stop it when you are done.
 ## Before launching Revit
 
 ```bash
-revit-harness dialog-watcher start
+revit-harness.exe dialog-watcher start
 ```
 
 Start is idempotent: if a watcher is already running it reports its pid and starts nothing.
@@ -28,11 +28,11 @@ prompt) is already covered. Revit is launched by the user or by you, never by th
 watcher is never started at logon.
 
 ```bash
-revit-harness dialog-watcher status   # pid, log directory, latest log; exit 1 if not running
-revit-harness dialog-watcher stop
+revit-harness.exe dialog-watcher status   # pid, log directory, latest log; exit 1 if not running
+revit-harness.exe dialog-watcher stop
 ```
 
-The watcher is installed by `revit-harness install`. If `start` says it is not installed, run
+The watcher is installed by `revit-harness.exe install`. If `start` says it is not installed, run
 the install command first (see the `revit-harness-install` skill).
 
 ## Unknown dialogs
@@ -43,8 +43,8 @@ line `revit-harness: DIALOG_BLOCKED: ...` with the pending ids) means a request 
 was pending; exit 4 (`TIMEOUT`) means no dialog was pending.
 
 ```bash
-revit-harness dialog-pending [--all]
-revit-harness dialog-decide --id <pendingId> --button "<exact button name>" --by "<your name>" [--save-rule] [--timeout <ms>]
+revit-harness.exe dialog-pending [--all]
+revit-harness.exe dialog-decide --id <pendingId> --button "<exact button name>" --by "<your name>" [--save-rule] [--timeout <ms>]
 ```
 
 1. Read `title`, `bodySummary` and the screenshot at `screenshotPath`.
@@ -96,7 +96,7 @@ title and button labels to the Revit display language):
 
 If you write a test that deliberately triggers a dialog, add a rule with `"noLearn": true` for
 that dialog to `%LOCALAPPDATA%\RevitHarness\dialogs\allowlist.json` (then
-`revit-harness reload-allowlist`). It is never auto-pressed or learned and always reaches the
+`revit-harness.exe reload-allowlist`). It is never auto-pressed or learned and always reaches the
 caller as pending. Set it only on your own test targets, never on dialogs you did not cause.
 The rule has the same shape as the example above, with `match.title` set to your test
 dialog's title and `"noLearn": true`.
@@ -104,7 +104,7 @@ dialog's title and `"noLearn": true`.
 ## When done
 
 ```bash
-revit-harness dialog-watcher stop
+revit-harness.exe dialog-watcher stop
 ```
 
 Stopping leaves the dialogs folder (`allowlist.json`, logs, pending entries) in place.

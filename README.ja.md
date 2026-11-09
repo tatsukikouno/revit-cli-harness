@@ -37,7 +37,7 @@ revit-harness install --revit-version 2024 --vendor-id <ベンダーID>      # �
 # 状態確認
 revit-harness status
 
-# アンインストール: アドインを削除。最後のバージョンを消すとウォッチャーと SKILL も削除
+# アンインストール: アドインを削除。最後のバージョンを消すとウォッチャーも削除（SKILL は uninstall-skills）
 revit-harness uninstall --revit-version 2024
 ```
 

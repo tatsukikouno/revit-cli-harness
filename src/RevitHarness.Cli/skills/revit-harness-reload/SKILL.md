@@ -10,10 +10,12 @@ description: |
 # RevitHarness Target Reload
 
 ```bash
-revit-harness reload --dll <absolute-path> --type <IExternalApplication-type> [--timeout <ms>]
-revit-harness target-status
-revit-harness unload [--timeout <ms>]
+revit-harness.exe reload --dll <absolute-path> --type <IExternalApplication-type> [--timeout <ms>]
+revit-harness.exe target-status
+revit-harness.exe unload [--timeout <ms>]
 ```
+
+> From WSL call `revit-harness.exe` (the `.exe` form also works on Windows). `--dll` takes a Windows path (`C:\...`); `/mnt/c/...` is not accepted.
 
 Build for the running Revit: 2024 = net48, 2025/2026 = net8.0-windows,
 2027 = net10.0-windows, into an output directory that is not a Revit Addins folder.
@@ -28,7 +30,7 @@ whose name also exists in the Revit install directory (RevitAPI, AdWindows, Newt
 Revit's and is never loaded from the target.
 
 If a build emits the target's own `.addin` into an Addins folder, run
-`revit-harness prepare-target --addin <path>` (parks it as `.addin.parked`, nothing is deleted; takes effect at
+`revit-harness.exe prepare-target --addin <path>` (parks it as `.addin.parked`, nothing is deleted; takes effect at
 the next Revit start). If the target uses Extensible Storage with a vendor id, install the harness with
 `--vendor-id <id>` and restart Revit once (see the `revit-harness-install` SKILL).
 

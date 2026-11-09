@@ -225,7 +225,7 @@ namespace RevitHarness.Cli.Installation
         }
 
         /// <summary>
-        /// Removes the add-in for one Revit version. The watcher and the SKILLs are shared by all
+        /// Removes the add-in for one Revit version. The watcher is shared by all
         /// versions, so they go with the last installed version. The dialogs data folder stays.
         /// </summary>
         public UninstallResult Uninstall(int revitVersion)

@@ -39,8 +39,8 @@ namespace RevitHarness.Cli.Installation
                 {
                     var dest = Path.Combine(skillsDir, name);
                     RevitInstaller.ReplaceDirectory(dest);
-                    RevitInstaller.CopyDirectory(Path.Combine(_bundledSkillsDir, name), dest, files);
                     File.WriteAllText(Path.Combine(dest, MarkerFile), "installed by revit-harness install-skills");
+                    RevitInstaller.CopyDirectory(Path.Combine(_bundledSkillsDir, name), dest, files);
                 }
 
                 return new SkillResult { Success = true, Message = $"Installed {names.Count} SKILLs into {skillsDir}", Files = files };

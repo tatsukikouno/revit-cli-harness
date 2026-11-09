@@ -13,7 +13,7 @@ description: |
 ## Install
 
 ```bash
-revit-harness install --revit-version <year> [--vendor-id <id>]
+revit-harness.exe install --revit-version <year> [--vendor-id <id>]
 ```
 
 - `--revit-version`: Revit version year (2024, 2025, 2026 or 2027) - required
@@ -23,7 +23,7 @@ Install and uninstall refuse to run while Revit is running: close Revit first. R
 
 Example:
 ```bash
-revit-harness install --revit-version 2024
+revit-harness.exe install --revit-version 2024
 ```
 
 ## Install the SKILLs
@@ -31,8 +31,8 @@ revit-harness install --revit-version 2024
 `install` does not place SKILLs. Use `install-skills`, which needs no Revit and has no default folder:
 
 ```bash
-revit-harness install-skills --dir <skills folder>
-revit-harness uninstall-skills --dir <skills folder>
+revit-harness.exe install-skills --dir <skills folder>
+revit-harness.exe uninstall-skills --dir <skills folder>
 ```
 
 For Claude Code on WSL pass the UNC path of the WSL skills folder, e.g. `\\wsl.localhost\Ubuntu\home\<user>\.claude\skills`. A skill folder with the same name that was not installed by `revit-harness` (it has no `.revit-harness` marker file) is never overwritten or removed; install fails and names it. `uninstall-skills` removes only marked folders.
@@ -40,7 +40,7 @@ For Claude Code on WSL pass the UNC path of the WSL skills folder, e.g. `\\wsl.l
 ## Park a target's own `.addin`
 
 ```bash
-revit-harness prepare-target --addin <path-to-the-target.addin> [--restore]
+revit-harness.exe prepare-target --addin <path-to-the-target.addin> [--restore]
 ```
 
 Renames `X.addin` to `X.addin.parked` so Revit (which reads only `*.addin`) does not load the target itself next to the harness. Nothing is deleted. Run it again after a build re-emits the manifest. It takes effect at the next Revit start. `--restore` puts the file back and never overwrites an existing manifest.
@@ -48,20 +48,20 @@ Renames `X.addin` to `X.addin.parked` so Revit (which reads only `*.addin`) does
 ## Uninstall
 
 ```bash
-revit-harness uninstall --revit-version <year>
+revit-harness.exe uninstall --revit-version <year>
 ```
 
 Removes the add-in for that version. The watcher is shared, so it is removed with the last installed version. The dialogs data folder (allowlist, logs, pending) is kept.
 
 Example:
 ```bash
-revit-harness uninstall --revit-version 2024
+revit-harness.exe uninstall --revit-version 2024
 ```
 
 ## Status
 
 ```bash
-revit-harness status [--revit-version <year>]
+revit-harness.exe status [--revit-version <year>]
 ```
 
 Shows installation status. If `--revit-version` is omitted, shows all detected versions.
@@ -82,4 +82,4 @@ Shows installation status. If `--revit-version` is omitted, shows all detected v
 
 ## After Installation
 
-Restart Revit to load the add-in. The IPC server starts automatically when Revit launches. Before launching Revit, start the dialog watcher (`revit-harness dialog-watcher start`, see the `revit-harness-dialogs` skill); it is never started automatically.
+Restart Revit to load the add-in. The IPC server starts automatically when Revit launches. Before launching Revit, start the dialog watcher (`revit-harness.exe dialog-watcher start`, see the `revit-harness-dialogs` skill); it is never started automatically.

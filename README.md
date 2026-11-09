@@ -37,7 +37,7 @@ revit-harness install --revit-version 2024 --vendor-id <your-vendor-id>  # see "
 # Check status
 revit-harness status
 
-# Uninstall: the add-in; the last uninstall also removes the watcher and SKILLs
+# Uninstall: the add-in; the last uninstall also removes the watcher (SKILLs: uninstall-skills)
 revit-harness uninstall --revit-version 2024
 ```
 

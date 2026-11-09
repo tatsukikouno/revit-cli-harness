@@ -44,6 +44,25 @@ namespace RevitHarness.Addin.Ipc
             }
         }
 
+        /// <summary>
+        /// Names whose rename forces this assembly to be rewritten: the assemblies it references and the friends
+        /// its InternalsVisibleTo attributes name.
+        /// </summary>
+        public static IReadOnlyList<string> LinkedNames(string path)
+        {
+            using var module = ModuleDefinition.ReadModule(new MemoryStream(File.ReadAllBytes(path)), new ReaderParameters { InMemory = true });
+            var names = new List<string>();
+            foreach (var reference in module.AssemblyReferences) names.Add(reference.Name);
+            foreach (var attribute in module.Assembly.CustomAttributes)
+            {
+                if (attribute.AttributeType.FullName != "System.Runtime.CompilerServices.InternalsVisibleToAttribute") continue;
+                if (!(attribute.ConstructorArguments[0].Value is string friend)) continue;
+                var comma = friend.IndexOf(',');
+                names.Add((comma < 0 ? friend : friend.Substring(0, comma)).Trim());
+            }
+            return names;
+        }
+
         // A renamed helper must stay a friend of its renamed siblings; the value is "Name" or "Name, PublicKey=...".
         private static void RenameInternalsVisibleTo(AssemblyDefinition assembly, IReadOnlyDictionary<string, string> newNames)
         {

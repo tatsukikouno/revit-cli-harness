@@ -44,6 +44,13 @@ distinct identities, so helpers are renamed per generation with Cecil (the entry
 because WPF pack URIs and `Type.GetType("...,Asm")` use it). The rename touches only helpers the resolver
 classified as owned, so a renamed copy of a Revit assembly can no longer appear.
 
+A rename breaks everything keyed on the assembly name (pack URIs, `.g.resources`, satellite resources), which
+a real target with a XAML helper hit on its first reload. So a helper is renamed only when needed: the first
+generation loads helpers under their own names; a later generation reuses a helper whose file hash and
+referenced or InternalsVisibleTo-linked helpers are all unchanged; a changed helper, and every helper
+linked to it, is renamed `<name>_g<N>`. Rewriting pack URIs, resource names and BAML for a changed XAML helper
+is not done: such a helper works in its first generation, and rebuilding it needs a Revit restart.
+
 ## 2. File location
 
 Byte loading leaves `Assembly.Location` empty, and real add-ins use it to find files beside the DLL.

@@ -29,7 +29,7 @@ namespace RevitHarness.Framework.Tests
             var refs = new List<MetadataReference> { MetadataReference.CreateFromFile(typeof(object).Assembly.Location) };
             refs.AddRange(references.Select(r => MetadataReference.CreateFromFile(r)));
             var result = CSharpCompilation.Create(name, new[] { CSharpSyntaxTree.ParseText(source) }, refs,
-                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)).Emit(Path.Combine(outDir, name + ".dll"));
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary).WithDeterministic(true)).Emit(Path.Combine(outDir, name + ".dll"));
             Assert.True(result.Success, string.Join("\n", result.Diagnostics));
         }
 
@@ -43,12 +43,12 @@ namespace RevitHarness.Framework.Tests
         // Unique names per test class instance: the net48 AppDomain keeps every loaded assembly for the whole run.
         private readonly string _id = Guid.NewGuid().ToString("N").Substring(0, 8);
 
-        private string BuildTarget(string tag)
+        private string BuildTarget(string tag, string helperTag = null)
         {
             var dir = NewDir(tag);
             var helper = "FwHelper" + _id;
             var main = "FwTarget" + _id;
-            Compile(helper, "namespace Fw { public static class Helper { public static string Tag => \"H" + tag + "\"; } }", dir);
+            Compile(helper, "namespace Fw { public static class Helper { public static string Tag => \"H" + (helperTag ?? tag) + "\"; } }", dir);
             Compile(main, "namespace Fw { public static class Probe { public static string Tag => \"M" + tag + "-\" + Helper.Tag; } }", dir,
                 Path.Combine(dir, helper + ".dll"));
             return Path.Combine(dir, main + ".dll");
@@ -111,19 +111,83 @@ namespace RevitHarness.Framework.Tests
             Assert.DoesNotContain(generation.Assemblies, a => a.GetName().Name.StartsWith(lib));
         }
 
-        [Fact]
-        public void InternalsVisibleToSurvivesTheRename()
+        private string BuildFriends(string tag)
         {
             var dir = NewDir("ivt");
             var core = "FwCore" + _id;
             var friend = "FwFriend" + _id;
             Compile(core, "[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(\"" + friend + "\")] namespace Fw { internal static class Secret { internal static string V => \"s\"; } }", dir);
-            Compile(friend, "namespace Fw { public static class Friend { public static string V => Secret.V; } }", dir, Path.Combine(dir, core + ".dll"));
+            Compile(friend, "namespace Fw { public static class Friend { public static string V => Secret.V + \"" + tag + "\"; } }", dir, Path.Combine(dir, core + ".dll"));
             Compile("FwIvtMain" + _id, "namespace Fw { public static class Probe { public static string Tag => Friend.V; } }", dir, Path.Combine(dir, friend + ".dll"));
+            return Path.Combine(dir, "FwIvtMain" + _id + ".dll");
+        }
 
-            var generation = Load(Path.Combine(dir, "FwIvtMain" + _id + ".dll"));
+        [Fact]
+        public void InternalsVisibleToSurvivesTheRename()
+        {
+            Load(BuildFriends("1"));
+            // The friend changed, so it is renamed; the unchanged core names it and must be rewritten with it.
+            var second = Load(BuildFriends("2"));
 
-            Assert.Equal("s", Read(generation, "Tag"));
+            Assert.Equal("s2", Read(second, "Tag"));
+            Assert.Contains(second.Assemblies, a => a.GetName().Name.StartsWith("FwFriend" + _id + "_g"));
+            Assert.Contains(second.Assemblies, a => a.GetName().Name.StartsWith("FwCore" + _id + "_g"));
+        }
+
+        private static string[] Names(Generation generation) => generation.Assemblies.Select(a => a.GetName().Name).ToArray();
+
+        [Fact]
+        public void TheFirstGenerationLoadsHelpersUnderTheirOwnNames()
+        {
+            var first = Load(BuildTarget("n1"));
+
+            Assert.Contains("FwHelper" + _id, Names(first));
+            Assert.DoesNotContain(Names(first), n => n.Contains("_g"));
+        }
+
+        [Fact]
+        public void AnUnchangedHelperIsSharedWithTheNextGeneration()
+        {
+            var first = Load(BuildTarget("u1", "same"));
+            var second = Load(BuildTarget("u2", "same"));
+
+            Assert.Same(
+                first.Assemblies.Single(a => a.GetName().Name == "FwHelper" + _id),
+                second.Assemblies.Single(a => a.GetName().Name == "FwHelper" + _id));
+            Assert.Equal("Mu1-Hsame", Read(first, "Tag"));
+            Assert.Equal("Mu2-Hsame", Read(second, "Tag"));
+        }
+
+        [Fact]
+        public void AChangedHelperIsRenamedForTheNextGeneration()
+        {
+            var first = Load(BuildTarget("c1", "h1"));
+            var second = Load(BuildTarget("c2", "h2"));
+
+            Assert.Contains(Names(second), n => n.StartsWith("FwHelper" + _id + "_g"));
+            Assert.Equal("Mc1-Hh1", Read(first, "Tag"));
+            Assert.Equal("Mc2-Hh2", Read(second, "Tag"));
+        }
+
+        [Fact]
+        public void AHelperThatReferencesAChangedHelperIsRenamedToo()
+        {
+            string Build(string coreTag)
+            {
+                var dir = NewDir("chain");
+                var core = "FwChainCore" + _id;
+                var mid = "FwChainMid" + _id;
+                Compile(core, "namespace Fw { public static class Core { public static string V => \"" + coreTag + "\"; } }", dir);
+                Compile(mid, "namespace Fw { public static class Mid { public static string V => \"m-\" + Core.V; } }", dir, Path.Combine(dir, core + ".dll"));
+                Compile("FwChainMain" + _id, "namespace Fw { public static class Probe { public static string Tag => Mid.V; } }", dir, Path.Combine(dir, mid + ".dll"));
+                return Path.Combine(dir, "FwChainMain" + _id + ".dll");
+            }
+
+            Load(Build("c1"));
+            var second = Load(Build("c2"));
+
+            Assert.Equal("m-c2", Read(second, "Tag"));
+            Assert.Contains(Names(second), n => n.StartsWith("FwChainMid" + _id + "_g"));
         }
     }
 }

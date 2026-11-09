@@ -47,6 +47,15 @@ timers, and stop background work. net8+ uses collectible ALCs; retained referenc
 prevent release. net48 old generations remain until Revit exits. Native DLLs are unsupported.
 See `samples/SampleTarget/README.md` for an independent probe that verifies target and helper BuildTags.
 
+Ribbon: Revit cannot remove ribbon items and the harness does not clean them up. A target that adds ribbon
+tabs, panels or buttons in OnStartup fails its second generation with `The name already exists` unless it
+looks the item up first and adds it only when missing (create once, reuse on every later OnStartup).
+
+net48 helper DLLs: a helper is loaded under its own name the first time. Later reloads reuse a helper whose file
+and referenced helpers are unchanged; only a changed helper (and the helpers that reference it) is renamed
+`<name>_g<N>`. A rename breaks what WPF keys on the assembly name (pack URIs, `.g.resources`), so a helper
+that holds XAML works until you rebuild that helper and reload again; restart Revit after rebuilding it.
+
 Exit codes: 0 success, 1 operation failed, 2 CONNECTION_FAILED (Revit not running / harness not loaded),
 3 HARNESS_NOT_READY (add-in still starting: retry), 4 TIMEOUT, 5 DIALOG_BLOCKED (a dialog is pending:
 `dialog-pending`, `dialog-decide`). For 2 to 5 the first stderr line is `revit-harness: <TOKEN>: <message>`.

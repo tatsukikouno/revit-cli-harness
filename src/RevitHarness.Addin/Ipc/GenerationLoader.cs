@@ -107,22 +107,76 @@ namespace RevitHarness.Addin.Ipc
                 {
                     var mainName = AssemblyName.GetAssemblyName(path).Name!;
                     var suffix = "_g" + System.Threading.Interlocked.Increment(ref _stamp);
-                    var renames = plan.Owned.Keys
-                        .Where(n => !string.Equals(n, mainName, StringComparison.OrdinalIgnoreCase))
+                    var helpers = plan.Owned.Where(i => !string.Equals(i.Key, mainName, StringComparison.OrdinalIgnoreCase))
+                        .ToDictionary(i => i.Key, i => i.Value, StringComparer.OrdinalIgnoreCase);
+                    // Hash before any rewrite: the shadow copy is replaced by the renamed one.
+                    var hashes = helpers.ToDictionary(h => h.Key, h => HashFile(h.Value), StringComparer.OrdinalIgnoreCase);
+                    var dirty = DirtyHelpers(helpers, hashes);
+                    // A rename breaks anything keyed on the assembly name (WPF pack URIs, .g.resources), so a helper is renamed only
+                    // when its name is already taken by another copy. An unchanged helper whose own helpers are unchanged too is reused.
+                    var loadedNames = new HashSet<string>(AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetName().Name!), StringComparer.OrdinalIgnoreCase);
+                    var renames = dirty.Where(n => loadedNames.Contains(n))
                         .ToDictionary(n => n, n => n + suffix, StringComparer.OrdinalIgnoreCase);
                     // The entry assembly loads last, so nothing it binds while loading can miss a helper.
                     foreach (var item in plan.Owned.OrderBy(i => string.Equals(i.Key, mainName, StringComparison.OrdinalIgnoreCase)))
                     {
+                        var isHelper = helpers.ContainsKey(item.Key);
+                        if (isHelper && !dirty.Contains(item.Key))
+                        {
+                            _assemblies[item.Key] = ReusableAssembly(item.Key);
+                            _log($"Reusing unchanged helper {item.Key}");
+                            continue;
+                        }
                         if (renames.Count > 0) RewriteInPlace(item.Value, renames, _revitDirectory);
                         var key = renames.TryGetValue(item.Key, out var renamed) ? renamed : item.Key;
                         // LoadFile, unlike LoadFrom, loads a second copy of an identity from another path, and Location stays real.
                         _assemblies[key] = Assembly.LoadFile(item.Value);
+                        if (isHelper && !renames.ContainsKey(item.Key))
+                            lock (PlainLock) Plain[item.Key] = (hashes[item.Key], _assemblies[key]);
                     }
                     LoadedAssembly = _assemblies[mainName];
                     lock (Live) Live.Add(this);
                     Lifetime = new WeakReference(LoadedAssembly, true);
                 }
                 catch { Dispose(); throw; }
+            }
+
+            // Helpers loaded under their own name, with the hash of the file they came from. A later generation may reuse one only
+            // when the file is unchanged and so is every helper it references.
+            private static readonly object PlainLock = new object();
+            private static readonly Dictionary<string, (string Hash, Assembly Assembly)> Plain =
+                new Dictionary<string, (string, Assembly)>(StringComparer.OrdinalIgnoreCase);
+
+            private static Assembly ReusableAssembly(string name)
+            {
+                lock (PlainLock) return Plain[name].Assembly;
+            }
+
+            private static HashSet<string> DirtyHelpers(IReadOnlyDictionary<string, string> helpers, IReadOnlyDictionary<string, string> hashes)
+            {
+                var dirty = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                lock (PlainLock)
+                    foreach (var name in helpers.Keys)
+                        if (!Plain.TryGetValue(name, out var known) || known.Hash != hashes[name]) dirty.Add(name);
+                var references = helpers.ToDictionary(
+                    h => h.Key,
+                    h => AssemblyRenamer.LinkedNames(h.Value).Where(helpers.ContainsKey).ToList(),
+                    StringComparer.OrdinalIgnoreCase);
+                bool changed;
+                do
+                {
+                    changed = false;
+                    foreach (var helper in references)
+                        if (!dirty.Contains(helper.Key) && helper.Value.Any(dirty.Contains))
+                            changed |= dirty.Add(helper.Key);
+                } while (changed);
+                return dirty;
+            }
+
+            private static string HashFile(string path)
+            {
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                return BitConverter.ToString(sha.ComputeHash(File.ReadAllBytes(path)));
             }
 
             // The shadow directory belongs to this generation, so the rewritten helper replaces its own copy.

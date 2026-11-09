@@ -13,7 +13,7 @@ description: |
 ## Usage
 
 ```bash
-revit-harness ping
+revit-harness.exe ping
 ```
 
 ## Response
@@ -45,5 +45,5 @@ Example output:
 
 If ping fails:
 1. Ensure Revit is running
-2. Verify harness is installed: `revit-harness status`
+2. Verify harness is installed: `revit-harness.exe status`
 3. Restart Revit if harness was just installed

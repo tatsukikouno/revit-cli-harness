@@ -13,8 +13,10 @@ description: |
 ## Usage
 
 ```bash
-revit-harness run-command --dll <path> --type <typename> [--args <json>] [--timeout <ms>]
+revit-harness.exe run-command --dll <path> --type <typename> [--args <json>] [--timeout <ms>]
 ```
+
+> From WSL call `revit-harness.exe` (the `.exe` form also works on Windows). `--dll` takes a Windows path (`C:\...`); `/mnt/c/...` is not accepted.
 
 ## Parameters
 
@@ -27,14 +29,14 @@ revit-harness run-command --dll <path> --type <typename> [--args <json>] [--time
 
 Basic:
 ```bash
-revit-harness run-command \
+revit-harness.exe run-command \
   --dll "C:\MyAddin\bin\Debug\MyAddin.dll" \
   --type "MyCompany.Commands.ExportWalls"
 ```
 
 With arguments:
 ```bash
-revit-harness run-command \
+revit-harness.exe run-command \
   --dll "C:\MyAddin\bin\Debug\MyAddin.dll" \
   --type "MyCompany.Commands.ExportWalls" \
   --args "{\"outputPath\":\"C:\\output.json\",\"includeHidden\":false}"

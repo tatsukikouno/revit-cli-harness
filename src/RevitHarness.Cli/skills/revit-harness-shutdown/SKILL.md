@@ -13,7 +13,7 @@ description: |
 ## Usage
 
 ```bash
-revit-harness shutdown
+revit-harness.exe shutdown
 ```
 
 ## Behavior

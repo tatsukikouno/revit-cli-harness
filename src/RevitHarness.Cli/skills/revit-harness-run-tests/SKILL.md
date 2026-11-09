@@ -13,8 +13,10 @@ description: |
 ## Usage
 
 ```bash
-revit-harness run-tests --dll <path> --type <typename> [--filter <filter>] [--timeout <ms>]
+revit-harness.exe run-tests --dll <path> --type <typename> [--filter <filter>] [--timeout <ms>]
 ```
+
+> From WSL call `revit-harness.exe` (the `.exe` form also works on Windows). `--dll` takes a Windows path (`C:\...`); `/mnt/c/...` is not accepted.
 
 ## Parameters
 
@@ -26,7 +28,7 @@ revit-harness run-tests --dll <path> --type <typename> [--filter <filter>] [--ti
 ## Example
 
 ```bash
-revit-harness run-tests \
+revit-harness.exe run-tests \
   --dll "C:\Projects\MyTests\bin\Debug\MyTests.dll" \
   --type "MyCompany.Tests.RevitTestEntryPoint" \
   --filter "Smoke"

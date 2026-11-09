@@ -354,6 +354,22 @@ namespace RevitHarness.Dialogs.Shared.Tests
         }
 
         [Fact]
+        public void Install_that_fails_midway_can_be_retried_and_uninstalled()
+        {
+            New().Install(_dir);
+            var locked = Directory.GetFiles(Path.Combine(_bundled, "skill-b")).First();
+            SkillResult failed;
+            using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+                failed = New().Install(_dir);
+
+            Assert.False(failed.Success);
+            var retry = New().Install(_dir);
+            Assert.True(retry.Success, retry.Message);
+            Assert.True(New().Uninstall(_dir).Success);
+            Assert.False(Directory.Exists(Path.Combine(_dir, "skill-b")));
+        }
+
+        [Fact]
         public void Uninstall_removes_ours_and_leaves_other_skills()
         {
             Directory.CreateDirectory(Path.Combine(_dir, "someone-elses"));
